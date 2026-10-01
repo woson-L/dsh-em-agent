@@ -1,0 +1,46 @@
+{
+  "name": "dsh-em-agent",
+  "version": "0.1.0",
+  "description": "DSH EM Agent: AI agent end-to-end antenna design console for DeepSeek Harness. CST Studio Suite MCP driven, single-file panel, no runtime deps.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "panel.html",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cst",
+    "antenna",
+    "mcp"
+  ],
+  "license": "MIT",
+  "author": "woson-L",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/woson-L/dsh-em-agent.git"
+  },
+  "homepage": "https://github.com/woson-L/dsh-em-agent#readme",
+  "bugs": {
+    "url": "https://github.com/woson-L/dsh-em-agent/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.1-rc.2"
+  }
+}

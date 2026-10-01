@@ -1,0 +1,45 @@
+{
+  "type": "dsh-antenna-panel-blocks",
+  "version": 1,
+  "blocks": [
+    {
+      "id": "blk-stats-window",
+      "name": "增益效率统计",
+      "zone": "full",
+      "enabled": true,
+      "allowScripts": false,
+      "channel": "stats",
+      "demand": "每轮仿真后输出该轮增益（dBi）与效率（dB）",
+      "renderMode": "auto",
+      "keepHistory": false,
+      "config": "",
+      "html": "<div data-block-slot></div>"
+    },
+    {
+      "id": "blk-stats-history",
+      "name": "增益效率统计（累积各轮）",
+      "zone": "full",
+      "enabled": false,
+      "allowScripts": false,
+      "channel": "stats",
+      "demand": "每轮仿真后输出该轮增益（dBi）、效率（dB）与最差 S11（dB），判定列写 PASS / FAIL",
+      "renderMode": "auto",
+      "keepHistory": true,
+      "config": "",
+      "html": "<div data-block-slot></div>"
+    },
+    {
+      "id": "blk-progress-bar",
+      "name": "迭代进度",
+      "zone": "right",
+      "enabled": true,
+      "allowScripts": true,
+      "channel": "progress",
+      "demand": "每轮输出已完成迭代数与总迭代数两列，例如 [[3,15]]",
+      "renderMode": "custom",
+      "keepHistory": false,
+      "config": "unit=轮",
+      "html": "<div style=\"font-size:12.5px;color:var(--text-sub);margin-bottom:6px;\" id=\"iterLbl\">等待数据</div>\n<div style=\"height:10px;border-radius:6px;background:var(--surface-3);overflow:hidden;\">\n  <div id=\"iterBar\" style=\"height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,var(--primary),var(--primary-dark));transition:width .3s ease;\"></div>\n</div>\n<script>\n  document.currentScript.closest('.custom-body').addEventListener('block-data', function (e) {\n    var d = e.detail;\n    var row = (d.payload.rows && d.payload.rows[0]) || [];\n    var done = Number(row[0]) || 0, total = Number(row[1]) || 1;\n    document.getElementById('iterBar').style.width = Math.min(100, done / total * 100) + '%';\n    document.getElementById('iterLbl').textContent =\n      '第 ' + d.round + ' 轮 · ' + done + ' / ' + total +\n      (d.block.config.unit ? ' ' + d.block.config.unit : '');\n  });\n</script>"
+    }
+  ]
+}

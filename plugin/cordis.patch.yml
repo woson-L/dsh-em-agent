@@ -1,0 +1,11 @@
+# 本 Bundle 只插入自己的 Host 插件行；不禁用、替换、遮蔽或修改任何官方
+# @deepseek-ai/* 条目。DSH Store 的准入要求之一就是「Bundle Patch 入口 ID 唯一，
+# 不禁用、遮蔽或冒充官方组件」。
+#
+# ⚠️ 与「手工在 profile 的 cordis.patch.yml 里加一行」是**二选一**的关系。
+#    两者同时存在会以同一个 id 插入两次，loader 抛
+#    `duplicate loader entry id`，DSH 将无法启动。
+#    从旧的手工登记方式迁移过来时，务必先把 profile 里那行删掉。
+- insert:
+    - id: em-agent-panel
+      name: dsh-em-agent

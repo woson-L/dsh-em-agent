@@ -1,0 +1,24 @@
+# 构建产物与截图（如需随仓库分发请在发布前确认，默认忽略）
+dist/*.html
+dist/shots/
+
+# 编辑器 / 系统临时文件
+*.tmp
+*.bak
+*~
+Thumbs.db
+desktop.ini
+
+# 本机环境
+.env
+.env.local
+
+# Node
+node_modules/
+npm-debug.log*
+
+# 一次性验证日志（含本机 PID 与路径，不入库）
+docs/reference/history/
+
+# 测试与工具产生的临时目录
+_cp_*/

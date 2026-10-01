@@ -1,0 +1,1577 @@
+<!DOCTYPE html>
+<!--
+╔══════════════════════════════════════════════════════════════════════════╗
+║  AI 全流程板载天线设计 · DSH 插件                                          ║
+║  ──────────────────────────────────────────────────────────────────────── ║
+║  单文件 HTML/CSS/JavaScript。可桌面双击打开（file:// 降级），或部署到        ║
+║  DSH Web 静态目录同源访问（完整功能：通过 CST MCP 驱动仿真+实时监控）。      ║
+║  主操作 = 启动仿真；页面显示 run_id/状态/阶段/迭代/最差S11/最佳候选/证据。    ║
+║  状态机：IDLE→PRECHECKING→[FAIL|RUNNING]→PAUSED/RESUMING→                  ║
+║  COMPLETED/FAILED/CANCELLED；刷新后凭 run 会话恢复。                          ║
+║  三个 CST Skill（cst-onboard-antenna / cst-simulation-workflow /           ║
+║  cst-multiband-antenna-optimization）约束自动注入指令。                     ║
+║  所有 CST 操作默认通过 cst-studio-suite MCP 执行。                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 全流程板载天线设计 · DSH 插件</title>
+<style>
+/* ============ 设计变量 ============ */
+:root {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #fbfcfe;
+  --border: #e5e8ec;
+  --text: #1f2733;
+  --text-sub: #5b6b7f;
+  --primary: #1f5fbf;
+  --primary-dark: #123c74;
+  --primary-light: #eaf1fb;
+  --ok: #1a8f5a;
+  --ok-bg: #eaf7f0;
+  --warn: #c07a12;
+  --warn-bg: #fdf3e4;
+  --err: #d64545;
+  --err-bg: #fdecec;
+  --mono: Consolas, "Courier New", monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { min-height: 100%; }
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px; line-height: 1.6;
+}
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+
+/* ============ 顶栏 ============ */
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 50;
+}
+.topbar .brand { font-size: 16px; font-weight: 700; color: var(--primary-dark); }
+.topbar .brand small { display: block; font-size: 11px; font-weight: 400; color: var(--text-sub); }
+.topbar .meta { margin-left: auto; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-radius: 12px; padding: 3px 10px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-sub);
+  white-space: nowrap;
+}
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #c5ccd5; }
+.pill.ok { color: var(--ok); border-color: #b8e3cc; background: var(--ok-bg); }
+.pill.ok .dot { background: var(--ok); }
+.pill.warn { color: var(--warn); border-color: #ecd3a4; background: var(--warn-bg); }
+.pill.warn .dot { background: var(--warn); }
+.pill.err { color: var(--err); border-color: #f2b8b8; background: var(--err-bg); }
+.pill.err .dot { background: var(--err); }
+
+/* ============ 主体 ============ */
+.main { max-width: 1440px; margin: 0 auto; padding: 14px 18px 60px; }
+
+/* ============ 任务控制条（第一屏） ============ */
+.taskbar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 14px;
+}
+.taskbar .row1 { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.taskbar .run-id { font-family: var(--mono); color: var(--text-sub); font-size: 12.5px; }
+.taskbar .state-badge {
+  font-weight: 700; font-size: 13px; border-radius: 6px; padding: 3px 12px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-sub);
+}
+.taskbar .state-badge.running { color: var(--ok); border-color: #b8e3cc; background: var(--ok-bg); }
+.taskbar .state-badge.prchecking,
+.taskbar .state-badge.recovering,
+.taskbar .state-badge.paused,
+.taskbar .state-badge.resuming { color: var(--warn); border-color: #ecd3a4; background: var(--warn-bg); }
+.taskbar .state-badge.failed,
+.taskbar .state-badge.cancelled { color: var(--err); border-color: #f2b8b8; background: var(--err-bg); }
+.taskbar .row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
+.kpi {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-2); padding: 8px 12px;
+}
+.kpi .k-label { font-size: 11.5px; color: var(--text-sub); margin-bottom: 2px; }
+.kpi .k-value { font-size: 17px; font-weight: 700; font-family: var(--mono); }
+.kpi .k-value.ok { color: var(--ok); }
+.kpi .k-value.warn { color: var(--warn); }
+.kpi .k-value.err { color: var(--err); }
+.task-controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+/* ============ 按钮 ============ */
+.btn {
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
+  color: var(--text); padding: 8px 18px; font-size: 14px;
+  transition: background .15s, border-color .15s;
+}
+.btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn.primary:hover { background: var(--primary-dark); color: #fff; }
+.btn.ok { background: var(--ok); color: #fff; border-color: var(--ok); }
+.btn.ok:hover { filter: brightness(.95); }
+.btn.warn { background: var(--warn); color: #fff; border-color: var(--warn); }
+.btn.err { background: var(--err); color: #fff; border-color: var(--err); }
+
+/* ============ 双栏 ============ */
+.columns { display: flex; gap: 14px; align-items: flex-start; }
+.col-left { flex: 1 1 55%; min-width: 0; }
+.col-right { flex: 1 1 45%; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+
+/* ============ 卡片 ============ */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px;
+}
+.card h2 {
+  font-size: 15px; font-weight: 700; color: var(--primary-dark);
+  margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.card h2 .tag, details.card > summary .tag, .card .tag {
+  font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 7px;
+  background: var(--primary-light); color: var(--primary);
+}
+.card h2 .tag.spec, details.card > summary .tag.spec, .card .tag.spec { background: var(--warn-bg); color: var(--warn); }
+.card h2 .tag.lock, details.card > summary .tag.lock, .card .tag.lock { background: #f4f6fa; color: var(--text-sub); }
+.card .desc { font-size: 12.5px; color: var(--text-sub); margin-bottom: 10px; }
+.card + .card { margin-top: 0; }
+
+/* 可折叠卡片（①②③④⑤⑥ 统一）：summary 与内容区 */
+details.card > summary {
+  cursor: pointer; font-weight: 700; color: var(--primary-dark);
+  font-size: 15px; padding-bottom: 6px; list-style: none;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  user-select: none;
+}
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::before { content: "▸"; transition: transform .15s; color: var(--primary); }
+details.card[open] > summary::before { transform: rotate(90deg); }
+details.card > .card-body { margin-top: 12px; }
+details.card[open] > summary { border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+
+/* ============ 表单 ============ */
+.f-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.f-row .f-label { width: 170px; flex: none; font-weight: 600; font-size: 13px; }
+.f-row .f-label .req { color: var(--err); margin-left: 2px; }
+.f-row .f-control { flex: 1 1 320px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.f-row .f-help { width: 100%; font-size: 12px; color: var(--text-sub); padding-left: 180px; }
+input[type="text"], input[type="number"], select {
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
+  font-size: 13.5px; background: #fff; color: var(--text); outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(31, 95, 191, .15); }
+input.invalid, select.invalid { border-color: var(--err); box-shadow: 0 0 0 2px rgba(214, 69, 69, .15); }
+input[disabled] { background: #eef1f5; color: #8a96a5; cursor: not-allowed; }
+input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
+textarea {
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  font-size: 13px; line-height: 1.55; background: #fff; color: var(--text); outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(31, 95, 191, .15); }
+textarea[readonly] { background: #f4f6fa; color: #33404f; }
+.f-row .unit { color: var(--text-sub); font-size: 12.5px; }
+
+/* 频段卡片 */
+.band-card {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-2); padding: 10px 12px; margin-bottom: 10px;
+}
+.band-card.res-on { border-color: #ecd3a4; }
+.band-card .band-head { font-weight: 700; font-size: 13px; margin-bottom: 8px; color: var(--primary-dark); }
+.band-card .band-fields { display: flex; gap: 14px; flex-wrap: wrap; }
+.band-card .bf { display: flex; align-items: center; gap: 6px; }
+.band-card .bf label { font-size: 12.5px; color: var(--text-sub); }
+
+/* 特殊任务 */
+.special-item {
+  border: 1px solid #ecd3a4; border-radius: 6px; background: var(--warn-bg);
+  padding: 10px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.special-item .s-label { font-size: 12.5px; color: var(--warn); font-weight: 600; }
+
+/* 预检 */
+.precheck-list { display: flex; flex-direction: column; gap: 6px; }
+.precheck-item {
+  display: flex; align-items: center; gap: 8px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; background: var(--surface-2);
+}
+.precheck-item .st { font-weight: 700; }
+.precheck-item.ok { border-color: #b8e3cc; background: var(--ok-bg); }
+.precheck-item.fail { border-color: #f2b8b8; background: var(--err-bg); }
+.blocked-box {
+  border: 1px solid #f2b8b8; border-radius: 6px; background: var(--err-bg);
+  color: #a13030; padding: 10px 12px; font-size: 13px; margin-top: 8px;
+}
+
+/* 日志 / 对话 */
+.log-list { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.log-item {
+  font-size: 12px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 8px; color: var(--text-sub); font-family: var(--mono); word-break: break-all;
+}
+.chat-view {
+  max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); padding: 10px 12px;
+}
+.chat-msg { display: flex; flex-direction: column; gap: 3px; }
+.chat-msg .chat-label { font-size: 11px; color: var(--text-sub); }
+.chat-msg.user { align-items: flex-end; }
+.chat-msg.assistant { align-items: flex-start; }
+.chat-msg .chat-body {
+  max-width: 92%; border-radius: 6px; padding: 7px 11px; font-size: 13px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word;
+}
+.chat-msg.user .chat-body { background: var(--primary); color: #fff; }
+.chat-msg.assistant .chat-body { background: #eef2f7; color: var(--text); }
+
+/* 证据 / 指纹 */
+.evidence-line { font-size: 12.5px; color: var(--text-sub); padding: 4px 0; }
+.evidence-line b { color: var(--text); }
+.fingerprint {
+  font-family: var(--mono); font-size: 12px; background: #0f1b2e; color: #cfe3ff;
+  border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; word-break: break-all;
+}
+
+/* 错误汇总 */
+.error-box { display: none; background: var(--err-bg); border: 1px solid #f2b8b8; color: #a13030; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; }
+.error-box.show { display: block; }
+.error-box ul { padding-left: 18px; }
+
+/* Toast */
+#toastBox { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 300; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.toast { background: #1f2733; color: #fff; border-radius: 6px; padding: 10px 18px; font-size: 13px; max-width: 640px; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.toast.ok { background: var(--ok); } .toast.warn { background: var(--warn); } .toast.err { background: var(--err); }
+.toast.out { opacity: 0; transform: translateY(-8px); transition: opacity .3s, transform .3s; }
+
+/* ============ 运行监控（S11 曲线 + 汇总表） ============ */
+.chart-box {
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2);
+  padding: 8px; overflow: hidden; position: relative;
+}
+.chart-empty { color: var(--text-sub); font-size: 12.5px; text-align: center; padding: 26px 10px; }
+.chart-box svg { display: block; width: 100%; height: auto; }
+.chart-box .chart-note { font-size: 11px; color: var(--text-sub); margin-top: 4px; text-align: right; }
+.table-wrap { overflow-x: auto; }
+.result-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.result-table th, .result-table td {
+  border: 1px solid var(--border); padding: 5px 8px; text-align: center; white-space: nowrap;
+}
+.result-table th { background: var(--surface-2); color: var(--text-sub); font-weight: 600; font-size: 11.5px; }
+.result-table td { font-family: var(--mono); }
+.result-table td.ok { color: var(--ok); font-weight: 700; }
+.result-table td.warn { color: var(--warn); }
+.result-table td.fail { color: var(--err); font-weight: 700; }
+.result-table .empty-row { color: var(--text-sub); font-family: inherit; }
+
+/* ============ 响应式（320px+） ============ */
+@media (max-width: 980px) {
+  .columns { flex-direction: column; }
+  .f-row .f-label, .f-row .f-help { width: 100%; padding-left: 0; }
+  .taskbar .row1 { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+@media (max-width: 400px) {
+  .main { padding: 10px 8px; }
+  .btn { flex: 1 1 auto; padding: 8px 10px; }
+  .band-card .bf { width: 100%; }
+  .task-controls .btn { flex: 1 1 40%; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============ 顶栏（真实运行状态） ============ -->
+<header class="topbar">
+  <div class="brand">AI 全流程板载天线设计 · DSH 插件<small>需求 → 设计 → 仿真 → 优化 → 验证 → 交付全流程控制台 · DSH + CST MCP</small></div>
+  <div class="meta">
+    <span class="pill" id="dshStatus"><span class="dot"></span>DSH：检测中…</span>
+    <span class="pill" id="mcpStatus"><span class="dot"></span>CST MCP：检测中…</span>
+    <span class="pill" id="cwdPill" title="工作副本路径">副本：—</span>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- ============ 任务控制条（第一屏：任务/操作/阶段/迭代/指标/候选） ============ -->
+  <section class="taskbar">
+    <div class="row1">
+      <span class="run-id" id="runId">run_id: <b>—</b></span>
+      <span class="state-badge idle" id="stateBadge">IDLE · 未启动</span>
+      <span class="pill" id="phasePill">当前阶段：<b id="evPhase">—</b></span>
+    </div>
+    <div class="row2">
+      <div class="kpi"><div class="k-label">迭代进度</div><div class="k-value" id="kIter">—</div></div>
+      <div class="kpi"><div class="k-label">最差 S11</div><div class="k-value warn" id="kWorst">—</div></div>
+      <div class="kpi"><div class="k-label">最佳候选</div><div class="k-value ok" id="kBest">—</div></div>
+      <div class="kpi"><div class="k-label">状态</div><div class="k-value" id="kState">—</div></div>
+    </div>
+    <div class="task-controls">
+      <button type="button" class="btn ok" id="btnStart">启动仿真</button>
+      <button type="button" class="btn" id="btnPause" disabled>暂停</button>
+      <button type="button" class="btn" id="btnResume" disabled>继续</button>
+      <button type="button" class="btn err" id="btnCancel" disabled>取消</button>
+      <button type="button" class="btn" id="btnRecover" disabled>断线恢复</button>
+    </div>
+    <div class="blocked-box" id="precheckBlocked" hidden></div>
+  </section>
+
+  <div class="columns">
+    <!-- ============ 左栏：配置 ============ -->
+    <div class="col-left">
+      <div class="error-box" id="errorBox"><ul id="errorList"></ul></div>
+
+      <!-- ① 工程 -->
+      <details class="card" id="secProject" open>
+        <summary>① 工程配置 <span class="tag">必需</span></summary>
+        <div class="card-body">
+        <div class="desc">源 CST 工程只读，全部操作在工作副本上进行（不可覆盖源工程）。</div>
+        <div class="f-row"><label class="f-label" for="inpProjectDir">目标工程路径<span class="req">*</span></label>
+          <div class="f-control"><input type="text" id="inpProjectDir" style="flex:1 1 300px;" placeholder=".cst 工程所在目录">
+            <button type="button" class="btn" id="btnBrowse">浏览目录…</button></div>
+          <div class="f-help" id="browseHelp">同源模式：Win10 本机目录选择器（DSH host.pickDirectory）；file:// 下为手动输入辅助。</div>
+        </div>
+        <div class="f-row"><label class="f-label" for="inpProjectFile">目标工程文件<span class="req">*</span></label>
+          <div class="f-control"><input type="text" id="inpProjectFile" list="cstFileList" style="flex:1 1 240px;" placeholder="如 PHL_board.cst 或相对路径">
+            <datalist id="cstFileList"></datalist>
+            <button type="button" class="btn" id="btnScan" title="弹出本机目录选择器，扫描该目录下的 .cst 文件">扫描 .cst</button>
+            <button type="button" class="btn" id="btnPickFile" title="直接在本机选择 .cst 工程文件">选择文件…</button>
+            <!-- 隐藏的文件选择器（“选择文件…”用） -->
+            <input type="file" id="pickFileInput" accept=".cst,.CST" style="display:none" aria-hidden="true">
+          </div>
+          <div class="f-help" id="scanHint">“扫描 .cst”：弹出本机目录选择器，列出所选目录下的真实 .cst 文件；选择后自动按“目标工程路径 + 相对路径”拼接为完整路径。也可点击“选择文件…”直接选 .cst 文件。</div>
+        </div>
+        <div class="f-row"><label class="f-label" for="inpCwd">任务工作目录 (cwd)</label>
+          <div class="f-control"><input type="text" id="inpCwd" style="flex:1 1 300px;" placeholder="默认：C:\CST_Workspace（文件所在区域）"></div>
+          <div class="f-help">新建会话工作目录；工作副本创建于其下 <code>cst_runs/&lt;run&gt;_&lt;日期&gt;/</code>。</div>
+        </div>
+        <div class="f-row"><label class="f-label" for="inpAntennaPath">天线对象路径<span class="req">*</span></label>
+          <div class="f-control"><input type="text" id="inpAntennaPath" style="flex:1 1 300px;" value="Components/ANT/antenna/"></div>
+          <div class="f-help">天线所在组件/零件路径。<b>请与 CST 工程树中的名称完全一致</b>。</div>
+        </div>
+        <div class="f-row"><label class="f-label" for="inpSubstratePath">基板对象路径<span class="req">*</span></label>
+          <div class="f-control"><input type="text" id="inpSubstratePath" style="flex:1 1 300px;" value="Components/substrate/SUB"></div>
+          <div class="f-help">基板所在组件路径。<b>请与 CST 工程树中的名称完全一致</b>。</div>
+        </div>
+        <div class="f-row"><label class="f-label">工作副本</label><div class="f-control"><span class="mono" id="copyPreview">（启动仿真后生成）</span></div></div>
+        </div><!-- /card-body -->
+      </details>
+
+      <!-- ② 频段与指标 -->
+      <details class="card" id="secBands" open>
+        <summary>② 频段与指标 <span class="tag">三频段独立</span></summary>
+        <div class="card-body">
+        <div class="desc">三频段可同时配置；每频段独立 S11 阈值与可选谐振点深度约束（启用后卡片橙色标识）。</div>
+        <div id="bandCards"></div>
+        </div><!-- /card-body -->
+      </details>
+
+      <!-- ③ 特殊任务 -->
+      <details class="card" id="secSpecial">
+        <summary>③ 特殊任务 <span class="tag spec">特殊约束</span></summary>
+        <div class="card-body">
+        <div class="desc">与普通 S11 目标不同视觉标识（橙色）；按需启用，均为可选；全部显式字段化，不隐藏在自然语言中。</div>
+        <div class="special-item">
+          <label style="display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" id="spEfficiencySuppress"> 4.80 GHz 效率抑制</label>
+          <span class="s-label">目标（dB）</span>
+          <input type="number" id="spEffTarget" step="1" min="-40" max="0" value="-20" style="width:90px" disabled>
+          <span class="unit">带外效率 ≤ 目标值</span>
+        </div>
+        <div class="special-item">
+          <label style="display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" id="spIsolation"> 隔离度要求</label>
+          <span class="s-label">阈值（dB）</span>
+          <input type="number" id="spIsoMax" step="1" min="-60" max="0" value="-25" style="width:90px" disabled>
+          <span class="unit">S21 / S12 ≤ 该值（越负越好，隔离度越大：如 -35 dB 优于 -25 dB；多端口时）</span>
+        </div>
+        <div class="special-item">
+          <label style="display:inline-flex;align-items:center;gap:6px;width:100%;"><input type="checkbox" id="spCustom"> 自定义性能指标（勾选后填写下方指标）</label>
+        </div>
+        <textarea id="spCustomText" style="width:100%;min-height:70px;" spellcheck="false"
+          placeholder="每行一条自定义性能指标，如：&#10;全频段总效率 ≥ -2 dB；&#10;VSWR ≤ 2（2.44 GHz）。"></textarea>
+        </div><!-- /card-body -->
+      </details>
+
+      <!-- ④ 迭代 -->
+      <details class="card" id="secIter">
+        <summary>④ 迭代控制</summary>
+        <div class="card-body">
+        <div class="f-row"><label class="f-label" for="inpMaxIter">最大迭代次数<span class="req">*</span></label>
+          <div class="f-control"><input type="number" id="inpMaxIter" min="1" max="50" step="1" value="15" style="width:110px;"><span class="unit">次（建议 5~50）</span></div></div>
+        <div class="f-row"><label class="f-label" for="selStop">终止策略</label>
+          <div class="f-control"><select id="selStop" style="min-width:300px;">
+            <option value="either" selected>两者任一（达标或达上限即终止）</option>
+            <option value="onTarget">达标即止（达到全部频段阈值即终止）</option>
+            <option value="onLimit">达上限即止（达到最大迭代次数才终止）</option></select></div></div>
+        </div><!-- /card-body -->
+      </details>
+
+      <!-- ⑤ 高级设置 -->
+      <details class="card" id="secAdvance">
+        <summary>⑤ 高级设置 / 锁定项</summary>
+        <div class="card-body">
+          <div class="f-row"><label class="f-label" for="inpThickness">天线厚度</label><div class="f-control"><input type="number" id="inpThickness" min="0.001" step="0.005" value="0.035" style="width:110px;"><span class="unit">mm</span></div></div>
+          <div class="f-row"><label class="f-label" for="inpMaterial">天线材料</label><div class="f-control"><input type="text" id="inpMaterial" value="copper (annealed)" style="flex:1 1 240px;"></div></div>
+          <div class="f-row"><label class="f-label" for="inpSubstrateSize">基板尺寸</label><div class="f-control"><input type="text" id="inpSubstrateSize" value="36.3mm × 8mm" style="flex:1 1 240px;" placeholder="如 36.3mm × 8mm 或 37mm × 6mm"></div></div>
+          <div class="f-row"><label class="f-label">局部网格 X/Y/Z</label><div class="f-control">
+            <input type="number" id="inpMeshX" min="0.001" step="0.01" value="0.1" style="width:88px" aria-label="网格 X">
+            <input type="number" id="inpMeshY" min="0.001" step="0.01" value="0.1" style="width:88px" aria-label="网格 Y">
+            <input type="number" id="inpMeshZ" min="0.001" step="0.01" value="0.1" style="width:88px" aria-label="网格 Z">
+            <span class="unit">mm</span></div></div>
+          <div class="f-row"><label class="f-label">馈电阻抗 / 端口方向</label><div class="f-control">
+            <input type="text" value="50 Ω" disabled title="固定值，不可更改" style="width:72px;">
+            <select id="selPortDir" style="min-width:88px;"><option value="Z轴" selected>Z 轴</option><option value="X轴">X 轴</option><option value="Y轴">Y 轴</option></select>
+            <span class="unit">Discrete Port（50Ω 固定）</span></div></div>
+          <div class="f-row"><label class="f-label">异常处理策略</label><div class="f-control" id="strategyGroup">
+            <label style="display:inline-flex;align-items:center;gap:5px;"><input type="checkbox" id="stScale" checked> 缩放重试</label>
+            <label style="display:inline-flex;align-items:center;gap:5px;"><input type="checkbox" id="stStub" checked> 增加短截线</label>
+            <label style="display:inline-flex;align-items:center;gap:5px;"><input type="checkbox" id="stMesh" checked> 强制细化网格</label></div></div>
+          <div class="blocked-box" style="background:#f4f6fa;border-color:var(--border);color:var(--text-sub);">🔒 以下为<b>默认锁定</b>项，不提供自主设置：边界条件、全局求解器类型、全局网格划分策略、场监视器（沿用源工程有效设置）。</div>
+        </div><!-- /card-body -->
+      </details>
+
+      <!-- ⑥ 命令 -->
+      <details class="card" id="secCommands">
+        <summary>⑥ 命令与目标</summary>
+        <div class="card-body">
+        <div class="desc">补充要求写入指令"用户自定义指令"段；性能指标已全部显式字段化，不隐藏在自然语言中。</div>
+        <textarea id="txtCustomCommands" style="width:100%;min-height:70px;" spellcheck="false"
+          placeholder="输入额外指令（可换行），如：&#10;优先优化低频段；&#10;增加寄生枝节。"></textarea>
+        </div><!-- /card-body -->
+      </details>
+
+      <!-- 预检结果 -->
+      <section class="card">
+        <h2>工程预检</h2>
+        <div class="precheck-list" id="precheckList"><span style="color:var(--text-sub);font-size:12.5px;">尚未执行。启动仿真前自动执行工程预检（CST MCP / 工程 / 路径一致性 / 配置完整性）。</span></div>
+      </section>
+
+      <!-- 操作日志 -->
+      <section class="card">
+        <h2>操作日志 <span class="tag">最近 5 次</span></h2>
+        <div class="log-list" id="logList"></div>
+      </section>
+    </div>
+
+    <!-- ============ 右栏：监控 ============ -->
+    <div class="col-right">
+      <section class="card">
+        <h2>事件流 / 状态可视化</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <span class="pill">阶段：<b id="evPhase">—</b></span>
+          <span class="pill">工具调用：<b id="evTools">0</b></span>
+          <span class="pill">事件 seq：<b id="evSeq">0</b></span>
+        </div>
+        <div class="chat-view" id="chatView"><div class="chat-msg assistant"><div class="chat-body">尚未启动。配置左栏 → 启动仿真，此处实时显示大模型输出与阶段。</div></div></div>
+      </section>
+
+      <section class="card">
+        <h2>运行监控 <span class="tag">目标频段表现</span></h2>
+        <div class="desc">S11 最优数据曲线（频率–S11，运行中实时更新；数据为 DSH 会话文本启发式采集，供监控参考，最终以结果导出与审计为准）。</div>
+        <div class="chart-box" id="chartBox"><div class="chart-empty" id="chartEmpty">运行后在此显示 S11 曲线</div></div>
+        <div style="margin-top:12px;font-size:12.5px;color:var(--text-sub);margin-bottom:6px;">运行结果数据汇总：</div>
+        <div class="table-wrap">
+          <table class="result-table" id="resultTable">
+            <thead><tr><th>频段</th><th>阈值<br>(dB)</th><th>最差 S11</th><th>最佳候选</th><th>谐振点</th><th>状态</th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty-row">运行后按频段汇总。</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>对话输入 <span class="tag">同会话内继续</span></h2>
+        <div style="display:flex;gap:8px;align-items:stretch;">
+          <textarea id="chatInput" style="flex:1 1 auto;min-height:56px;" spellcheck="false" placeholder="输入要发送给大模型的内容（可多行）…"></textarea>
+          <button class="btn primary" id="btnChatSend" style="align-self:stretch;">发送</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+          <button class="btn" id="btnCopy">复制指令</button>
+          <button class="btn" id="btnClearChat">清空对话</button>
+          <button class="btn" id="btnGenerateOnly">仅生成指令</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>结果证据 <span class="tag lock">审计</span></h2>
+        <div class="evidence-line">run-manifest：<b id="evManifest">—</b></div>
+        <div class="evidence-line">参数历史：<b id="evParams">—</b></div>
+        <div class="evidence-line">结果曲线：<b id="evCurve">—</b></div>
+        <div class="evidence-line" style="color:var(--warn);">@ 审计提示：<b>“求解完成” ≠ “优化完成”</b>；最终以 Critical Checks 审计与四类指纹一致为准。</div>
+        <div style="margin-top:8px;font-size:12.5px;color:var(--text-sub);margin-bottom:6px;">四类指纹（拓扑 / 网格 / 端口 / 求解器）：</div>
+        <div class="fingerprint" id="fingerprint">—</div>
+      </section>
+
+      <section class="card">
+        <h2>特殊约束说明</h2>
+        <div class="evidence-line" style="line-height:1.8;">· 4.80 GHz 效率抑制、隔离度要求、自定义指标为<b>特殊任务</b>（橙色标识），仅按需启用；隔离度越大越好（S21 越负越优）。</div>
+        <div class="evidence-line" style="line-height:1.8;">· 所有 CST 操作<b>默认通过 cst-studio-suite MCP</b> 驱动 CST Studio Suite 2026 执行。</div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<div id="toastBox" aria-live="polite"></div>
+
+<script>
+"use strict";
+/* ============================================================
+   常量与全局状态
+   ============================================================ */
+const BANDS = [
+  { id: "band-24",   key: "2.40-2.48",   label: "2.40 – 2.48 GHz",   range: { lo: 2.40,  hi: 2.48 } },
+  { id: "band-515",  key: "5.15-5.85",   label: "5.15 – 5.85 GHz",   range: { lo: 5.15,  hi: 5.85 } },
+  { id: "band-6425", key: "6.425-7.125", label: "6.425 – 7.125 GHz", range: { lo: 6.425, hi: 7.125 } },
+];
+const THRESHOLD_OPTIONS = [{ value: "-8", label: "-8 dB" }, { value: "-10", label: "-10 dB" }, { value: "-15", label: "-15 dB" }, { value: "custom", label: "自定义…" }];
+const RES_S11_OPTIONS = [{ value: "-10", label: "-10 dB" }, { value: "-12", label: "-12 dB" }, { value: "-15", label: "-15 dB" }, { value: "-20", label: "-20 dB" }, { value: "custom", label: "自定义…" }];
+const DEFAULT_ANTENNA_PATH = "Components/ANT/antenna/";
+const DEFAULT_SUBSTRATE_PATH = "Components/substrate/SUB";
+const DEFAULT_SUBSTRATE_SIZE = "36.3mm × 8mm";
+const DEFAULT_CWD = "C:\\CST_Workspace";
+
+const FIXED_CONFIG = {
+  resultFileTemplate: "{原工程名}-antenna_optimized_{日期}.cst",
+  reportFormats: ["Word 文档", "纯文本摘要"],
+  feedType: "Discrete Port",
+  impedance: "50Ω",
+  forbiddenModifications: ["边界条件", "全局激励源", "全局求解器类型", "全局网格划分策略", "场监视器"],
+};
+
+const SKILL_PREAMBLE = "【背景知识自动加载】\n本任务基于以下三个 CST 仿真 Skill 的约束与策略，执行时自动生效：\n" +
+  "1. cst-onboard-antenna：板载天线领域约束——源工程副本保护与操作权限（仅允许修改指定天线/基板对象）、材料/厚度/局部网格规范、Discrete Port 馈电要求、每轮轻量预检查与 blocked_case 处理、最终拓扑审计（Boolean Unite/局部网格覆盖/CAD 与 mesh-only 预检查）与四类指纹。\n" +
+  "2. cst-simulation-workflow：CST 仿真工作流——检测环境→检查工程→副本/模板→解析输入→配置几何/材料/端口/边界/网格/求解器/监视器→求解→提取→校验→报告；异常处理与参数策略遵循其规范。\n" +
+  "3. cst-multiband-antenna-optimization：多频天线优化策略——多频/弱模式诊断、开路/短路枝节、耦合寄生、槽/折叠/滤波谐振器选择、参数扫描规划、连续频带 S 参数与效率/增益/可选阻带验证。\n\n（以上为摘要声明；DSH 端已安装对应 Skill 全文，按需加载。）";
+
+const DEFAULT_STRATEGY_TEXT = [
+  "1) 工程保护：复制源工程及其伴随目录到 cst_runs/<任务名>_<日期>/ 工作副本，禁止覆盖源工程；结构化 manifest 记录路径、参数、状态与证据。",
+  "2) 基线优先：先建立可复现基线，确认已有结果与当前模型状态一致；仅修改任务卡授权的组件、实体和端口。",
+  "3) 参数化：参数分固定/阶段/求解三类，记录单位、初值、上下界与冲突规则；写参数后显式 rebuild 并回读；不在结构宏内调用 Rebuild。",
+  "4) 拓扑纪律：贴片、馈线、枝节、槽与耦合单元位于预期层面，不穿透介质、不悬空、不形成零厚度面或意外短接；电气连续导体执行 Boolean Unite，独立寄生体记录作用与最小间隙。",
+  "5) 扫描策略：扫描前预览案例数；优先单因素、zip 或拉丁超立方定位敏感参数，再做局部优化；仅在案例数可控时用笛卡尔积。",
+  "6) 目标函数：s11_penalty = max(0, s11_db - s11_max_db)^2（各频段独立）；score = 加权和(归一化惩罚) + 几何复杂度惩罚；权重与归一化显式记录。",
+  "7) 求解设置：沿用源工程有效端口、边界与求解器；宽带 Time Domain，窄带/高Q Frequency Domain；切换记录理由并标记旧结果失效。",
+  "8) 迭代预检查：每轮 rebuild 成功且参数回读一致、端口连接正常、材料/边界完整、无致命 CAD/网格错误；失败标记 blocked_case 归档；达标候选标记 provisional。",
+  "9) 最终门禁（FINAL_TOPOLOGY_AUDIT）：连续导体 Boolean Unite 核对、最终几何局部网格覆盖、CAD 重叠与 mesh-only 预检查；记录 topology/mesh/port/solver 四类指纹。",
+  "10) 后处理与校验：按实际结果树路径读取，S_db = 20*log10(|S|)、eff_db = 10*log10(eta)；用 validate_antenna_results.py 确定性校验，输入显式声明单位/格式/频带/阈值；最终关系统一含边界 <= / >=。",
+  "11) 交付与状态：交付源工程/工作副本/最终 .cst、run manifest、原始结果与曲线、各频带最差值/目标值/PASS-FAIL、Critical Checks 记录；状态用 validated_pass / validated_fail / needs_validation / partial / blocked / plan_only，不得把“求解完成”写成“优化完成”。",
+].join("\n");
+
+const PORT_NOTES = [
+  "Discrete Port 的两个端点应分别落在信号导体和地平面的相同横向投影位置；",
+  "端点不得落在空气、介质、侧壁或无关导体上；",
+  "端口位置参与优化时，保持端口类型、参考定义与极性一致；调整后重新执行轻量预检查确认端口连接正常。",
+];
+
+let bandState = {};
+let bandEnabled = new Set(["band-24"]);
+let actionLogs = [];
+
+// 运行状态机：idle → prchecking → running ↔ paused/resuming → completed/failed/cancelled；recovering（断线恢复）
+let runState = "idle";
+let runId = null;
+let chatSession = null;
+let chatLastSeq = 0;
+let chatPollTimer = null;
+let chatSocket = null;
+
+/* ============================================================
+   工具函数
+   ============================================================ */
+function toast(msg, type, ms) {
+  type = type || "info"; ms = ms || 3200;
+  const box = document.getElementById("toastBox");
+  const el = document.createElement("div");
+  el.className = "toast" + (type === "ok" ? " ok" : type === "warn" ? " warn" : type === "err" ? " err" : "");
+  el.textContent = msg;
+  box.appendChild(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 320); }, ms);
+}
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; }
+  } catch (e) {}
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch (e) { return false; }
+}
+function pad2(n) { return String(n).padStart(2, "0"); }
+function todayStr() { const d = new Date(); return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()); }
+function nowStamp() { return new Date().toLocaleTimeString("zh-CN", { hour12: false }); }
+function joinPath(dir, file) { const d = String(dir).replace(/[\\/]+$/, ""); return d ? d + "\\" + file : file; }
+function isDSHSameOrigin() { return location.protocol === "http:" || location.protocol === "https:"; }
+function makeRpcId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return "rpc-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+}
+function baseNameOf(f) { return String(f).replace(/\.cst$/i, "") || "antenna"; }
+function configCopyPath(cfg) {
+  const cwd = cfg.cwd || DEFAULT_CWD;
+  return cwd + "\\cst_runs\\" + baseNameOf(cfg.projectFile) + "_" + todayStr();
+}
+
+/* Win10 目录选择器：同源模式调用 DSH host.pickDirectory；file:// 降级提示 */
+function openNativeDirectoryPicker() {
+  if (!isDSHSameOrigin()) {
+    toast("本地模式请手动输入目录；同源模式（http://127.0.0.1:3080/…）可用本机目录选择器", "warn", 4200);
+    return;
+  }
+  dshRpc("host.pickDirectory", {}).then((val) => {
+    const path = (val && val.path) || val;
+    if (path) { document.getElementById("inpProjectDir").value = path; refreshDynamic(); }
+  }).catch((e) => toast("目录选择失败：" + e.message, "err", 4200));
+}
+
+/* ============================================================
+   DSH RPC + WebSocket 实时订阅（与 DSH 前端同协议）
+   ============================================================ */
+async function dshRpc(method, payload) {
+  const res = await fetch("/api/" + method, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "client-request", rpcId: makeRpcId(), method, payload }),
+  });
+  if (!res.ok) throw new Error("DSH 传输失败（HTTP " + res.status + "）");
+  const full = await res.json();
+  if (!full.result || !full.result.ok) {
+    const msg = (full.result && full.result.error && full.result.error.message) || "未知错误";
+    throw new Error("DSH 拒绝请求：" + msg);
+  }
+  return full.result.value;
+}
+
+function connectChatSocket() {
+  if (chatSocket !== null || chatSession === null || !isDSHSameOrigin()) return;
+  const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(wsProtocol + "//" + location.host + "/api/events.mux");
+  chatSocket = ws;
+  ws.onmessage = (ev) => {
+    try {
+      const envelope = JSON.parse(ev.data);
+      const frame = envelope && envelope.payload;
+      if (!frame || typeof frame !== "object") return;
+      if (frame.type === "session/event" && frame.sessionId === chatSession) {
+        processSessionEvent(frame.event);
+        if (frame.event.seq > chatLastSeq) chatLastSeq = frame.event.seq;
+      }
+    } catch (e) {}
+  };
+  ws.onclose = () => { if (chatSocket === ws) { chatSocket = null; startChatPolling(); } };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+function disconnectChatSocket() {
+  if (chatSocket !== null) { try { chatSocket.close(); } catch (e) {} chatSocket = null; }
+}
+function startChatPolling() {
+  if (chatPollTimer !== null || chatSession === null || chatSocket !== null) return;
+  chatPollTimer = setInterval(pollChatOnce, 4000);
+  pollChatOnce();
+}
+function stopChatPolling() {
+  if (chatPollTimer !== null) { clearInterval(chatPollTimer); chatPollTimer = null; }
+}
+async function pollChatOnce() {
+  if (chatSession === null || chatSocket !== null) return;
+  try {
+    const res = await dshRpc("session.history", { sessionId: chatSession, maxMessages: 50 });
+    const events = (res.events || []).filter((e) => e && e.event && e.event.seq > chatLastSeq);
+    events.sort((a, b) => a.event.seq - b.event.seq);
+    for (const entry of events) { processSessionEvent(entry.event); if (entry.event.seq > chatLastSeq) chatLastSeq = entry.event.seq; }
+  } catch (e) { stopChatPolling(); }
+}
+async function snapshotChatHistory() {
+  if (chatSession === null) return;
+  try {
+    const res = await dshRpc("session.history", { sessionId: chatSession, maxMessages: 30 });
+    const events = (res.events || []).slice().sort((a, b) => a.event.seq - b.event.seq);
+    for (const entry of events) { processSessionEvent(entry.event); if (entry.event.seq > chatLastSeq) chatLastSeq = entry.event.seq; }
+  } catch (e) {}
+}
+
+/* ============================================================
+   事件 → 运行状态 / 对话 / 监控 三路分发
+   ============================================================ */
+function extractBlocksText(blocks) {
+  if (!Array.isArray(blocks)) return "";
+  return blocks.filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text).join("");
+}
+function setRunState(s) {
+  runState = s;
+  const map = { idle: "IDLE · 未启动", prchecking: "工程预检中", running: "优化运行中", paused: "已暂停", resuming: "恢复中", completed: "已完成", failed: "失败/阻断", cancelled: "已取消", recovering: "断线恢复中" };
+  const badge = document.getElementById("stateBadge");
+  badge.textContent = map[s] || s;
+  badge.className = "state-badge " + s;
+  document.getElementById("kState").textContent = map[s] || s;
+  updateControlButtons();
+  addLog("状态 → " + (map[s] || s));
+}
+function updateControlButtons() {
+  const canStart = runState === "idle" || runState === "completed" || runState === "failed" || runState === "cancelled";
+  document.getElementById("btnStart").disabled = !canStart;
+  document.getElementById("btnPause").disabled = !(runState === "running");
+  document.getElementById("btnResume").disabled = !(runState === "paused");
+  document.getElementById("btnCancel").disabled = !(runState === "running" || runState === "paused" || runState === "recovering");
+  document.getElementById("btnRecover").disabled = !(chatSession === null);
+}
+function updateKPI(iter) {
+  if (typeof iter === "number") {
+    const max = Number(document.getElementById("inpMaxIter").value) || 15;
+    document.getElementById("kIter").textContent = iter + " / " + max;
+  }
+}
+
+const S11_RE = /S\s?11[^\d-]{0,8}(-?\d+(?:\.\d+)?)\s*dB/gi;
+let worstS11 = null, bestS11 = null, evToolCount = 0, evPhase = "—", evSeq = 0;
+function updateS11FromText(text) {
+  const matches = [];
+  let m;
+  S11_RE.lastIndex = 0;
+  while ((m = S11_RE.exec(text)) !== null) {
+    const v = Number(m[1]);
+    if (isFinite(v) && v < 0) matches.push(v);
+  }
+  if (matches.length) {
+    const w = Math.max(...matches), b = Math.min(...matches);
+    worstS11 = worstS11 === null ? w : Math.max(worstS11, w);
+    bestS11 = bestS11 === null ? b : Math.min(bestS11, b);
+    document.getElementById("kWorst").textContent = worstS11.toFixed(1) + " dB";
+    document.getElementById("kBest").textContent = bestS11.toFixed(1) + " dB";
+  }
+}
+
+/* ============================================================
+   运行监控：目标频段表现（S11 曲线 + 结果汇总表）
+   数据为会话文本启发式采集（频率–S11 对），仅供监控参考。
+   ============================================================ */
+let chartData = [];          // [{f: GHz, db: dB}]
+/* 两步解析：先找 dB 值，再回溯 80 字符内最近的“带 GHz 的频率”，避免 S11 字样误判 */
+const DB_VALUE_RE = /(-?\d+(?:\.\d+)?)\s*dB/gi;
+const FRQ_GHZ_RE = /(\d+(?:\.\d+)?)\s*GHz/gi;
+function collectFreqDbFromText(text) {
+  if (!text) return;
+  const dbs = [];
+  let m;
+  DB_VALUE_RE.lastIndex = 0;
+  while ((m = DB_VALUE_RE.exec(text)) !== null) dbs.push({ db: Number(m[1]), pos: m.index });
+  let added = false;
+  for (const r of dbs) {
+    if (!(r.db < 0 && r.db > -60)) continue;
+    const seg = text.slice(Math.max(0, r.pos - 80), r.pos);
+    let fm, lastF = null;
+    FRQ_GHZ_RE.lastIndex = 0;
+    while ((fm = FRQ_GHZ_RE.exec(seg)) !== null) lastF = Number(fm[1]);
+    if (lastF !== null && lastF >= 1.5 && lastF <= 8.0) {
+      chartData.push({ f: lastF, db: r.db });
+      added = true;
+    }
+  }
+  if (added) { drawChart(); updateResultTable(); }
+}
+function resetRunMonitor() {
+  chartData = [];
+  worstS11 = null; bestS11 = null; evToolCount = 0;
+  document.getElementById("kWorst").textContent = "—";
+  document.getElementById("kBest").textContent = "—";
+  document.getElementById("kIter").textContent = "—";
+  drawChart();
+  updateResultTable();
+}
+/* S11 曲线：SVG 折线 + 频段区间带 + 阈值线 + 数据点 */
+function drawChart() {
+  const box = document.getElementById("chartBox");
+  const empty = document.getElementById("chartEmpty");
+  const active = BANDS.filter((b) => bandState[b.key] && bandState[b.key].on);
+  if (!active.length && chartData.length === 0) {
+    box.innerHTML = "<div class='chart-empty' id='chartEmpty'>运行后在此显示 S11 曲线（含频段区间与阈值线）</div>";
+    return;
+  }
+  const W = 560, H = 300, padL = 46, padR = 16, padT = 18, padB = 30;
+  const fMin = 1.8, fMax = 7.6, dbTop = 0, dbBottom = -40;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const X = (f) => padL + ((f - fMin) / (fMax - fMin)) * plotW;
+  const Y = (db) => padT + ((db - dbTop) / (dbBottom - dbTop)) * plotH; // db: 0 顶部, -40 底部
+  // 显著 dB 采样点按频率去重近似（曲线保持只读展示）
+  const pts = chartData.slice().sort((a, b) => a.f - b.f);
+  const N = 60;
+  const sampled = [];
+  if (pts.length) {
+    const minF = pts[0].f, maxF = pts[pts.length - 1].f;
+    const span = Math.max(0.001, maxF - minF);
+    for (let i = 0; i < N; i++) {
+      const tf = minF + (i / (N - 1)) * span;
+      const near = pts.filter((p) => Math.abs(p.f - tf) <= span / (N * 2));
+      const val = near.length ? Math.max(...near.map((p) => p.db)) : null;
+      if (val !== null) sampled.push({ f: tf, db: val });
+    }
+  }
+  const id = "gradS11";
+  const svg =
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">' +
+    '<defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0%" stop-color="#1a8f5a" stop-opacity="0.04"/><stop offset="100%" stop-color="#1a8f5a" stop-opacity="0.22"/></linearGradient></defs>' +
+    // 频段区间带（启用频段）
+    active.map((b) => {
+      const x1 = X(b.range.lo), x2 = X(b.range.hi);
+      return '<rect x="' + x1 + '" y="' + padT + '" width="' + (x2 - x1) + '" height="' + plotH + '" fill="url(#' + id + ')" stroke="#1a8f5a" stroke-dasharray="3,3" stroke-opacity="0.5"/>';
+    }).join("") +
+    // 阈值线（每启用频段）
+    active.map((b) => {
+      const st = bandState[b.key];
+      const thr = st.threshold === "custom" ? Number(st.custom) : Number(st.threshold);
+      if (!isFinite(thr)) return "";
+      const y = Y(thr);
+      const x1 = X(b.range.lo), x2 = X(b.range.hi);
+      return '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" stroke="#c07a12" stroke-width="1.5" stroke-dasharray="5,4"/>' +
+        '<text x="' + (x1 + 3) + '" y="' + (y - 4) + '" font-size="10" fill="#c07a12">' + b.label + " 阈值 " + thr + " dB</text>";
+    }).join("") +
+    // 网格 + 轴
+    gridLines() +
+    // 曲线
+    (sampled.length > 1 ? '<polyline points="' + sampled.map((p) => X(p.f).toFixed(1) + "," + Y(p.db).toFixed(1)).join(" ") + '" fill="none" stroke="#1f5fbf" stroke-width="2" stroke-linejoin="round"/>' : "") +
+    // 数据点
+    pts.map((p) => '<circle cx="' + X(p.f).toFixed(1) + '" cy="' + Y(p.db).toFixed(1) + '" r="2.4" fill="#d64545"/>').join("") +
+    // 轴标签
+    '<text x="' + padL + '" y="' + (H - 8) + '" font-size="11" fill="#5b6b7f">1.8</text>' +
+    '<text x="' + X(2.4) + '" y="' + (H - 8) + '" font-size="11" fill="#5b6b7f" text-anchor="middle">2.4</text>' +
+    '<text x="' + X(5.5) + '" y="' + (H - 8) + '" font-size="11" fill="#5b6b7f" text-anchor="middle">5.5</text>' +
+    '<text x="' + X(6.8) + '" y="' + (H - 8) + '" font-size="11" fill="#5b6b7f" text-anchor="middle">6.8</text>' +
+    '<text x="' + (W - 4) + '" y="' + (H - 8) + '" font-size="11" fill="#5b6b7f" text-anchor="end">GHz</text>' +
+    '<text x="8" y="' + (padT + 6) + '" font-size="10" fill="#5b6b7f">0</text>' +
+    '<text x="8" y="' + (Y(-20) + 3) + '" font-size="10" fill="#5b6b7f">-20</text>' +
+    '<text x="8" y="' + (H - 30) + '" font-size="10" fill="#5b6b7f">-40</text>' +
+    '<text x="' + padL + '" y="' + (padT - 6) + '" font-size="11" fill="#5b6b7f">S11 (dB)</text>' +
+    '</svg>' +
+    '<div class="chart-note">● 数据点（启发式采集）　━ 最优拟合线　┄ 阈值线　▒ 频段区间；黄色为阈值</div>';
+  box.innerHTML = svg;
+}
+function gridLines() {
+  const W = 560, H = 300, padL = 46, padR = 16, padT = 18, padB = 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const X = (f) => padL + ((f - 1.8) / (7.6 - 1.8)) * plotW;
+  const Y = (db) => padT + ((db - 0) / (-40 - 0)) * plotH;
+  let s = "";
+  for (let f = 2; f <= 7; f += 1) s += '<line x1="' + X(f) + '" y1="' + padT + '" x2="' + X(f) + '" y2="' + (padT + plotH) + '" stroke="#eef1f5" stroke-width="1"/>';
+  for (let d = -10; d >= -30; d -= 10) s += '<line x1="' + padL + '" y1="' + Y(d) + '" x2="' + (padL + plotW) + '" y2="' + Y(d) + '" stroke="#eef1f5" stroke-width="1"/>';
+  s += '<rect x="' + padL + '" y="' + padT + '" width="' + plotW + '" height="' + plotH + '" fill="none" stroke="#d8e0ea"/>';
+  return s;
+}
+/* 结果汇总表：按启用频段汇总最差/最佳/谐振/达标 */
+function updateResultTable() {
+  const tbody = document.querySelector("#resultTable tbody");
+  const active = BANDS.filter((b) => bandState[b.key] && bandState[b.key].on);
+  const iterations = evToolCount;
+  if (!active.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-row">请至少启用一个频段。</td></tr>';
+    return;
+  }
+  let html = "";
+  active.forEach((b) => {
+    const st = bandState[b.key];
+    const thr = st.threshold === "custom" ? (Number(st.custom) || -8) : Number(st.threshold);
+    const pts = chartData.filter((p) => p.f >= b.range.lo && p.f <= b.range.hi);
+    let worst = null, best = null;
+    if (pts.length) { worst = Math.max(...pts.map((p) => p.db)); best = Math.min(...pts.map((p) => p.db)); }
+    const res = (st.resOn && st.resFreq) ? st.resFreq + " GHz" : "—";
+    let status = "—", cls = "";
+    if (worst !== null) {
+      if (worst <= thr) { status = "达标"; cls = "ok"; }
+      else { status = "未达标"; cls = "fail"; }
+    }
+    html += '<tr>' +
+      '<td>' + b.label + '</td>' +
+      '<td>' + thr + ' dB</td>' +
+      '<td class="' + (pts.length ? (worst <= thr ? "ok" : "fail") : "") + '">' + (worst === null ? "—" : worst.toFixed(1) + " dB") + '</td>' +
+      '<td class="ok">' + (best === null ? "—" : best.toFixed(1) + " dB") + '</td>' +
+      '<td>' + res + '</td>' +
+      '<td class="' + cls + '">' + status + '</td>' +
+      '</tr>';
+  });
+  tbody.innerHTML = html + '<tr><td colspan="6" class="empty-row" style="color:var(--text-sub);text-align:left;">启发式采集数据点：' + chartData.length + " 个 · 已含 " + iterations + " 步工具调用（最终以结果导出为准）</td></tr>";
+}
+function inferPhaseFromEvent(event) {
+  let text = "";
+  if (event.type === "assistant/message") text = extractBlocksText(event.data && event.data.message && event.data.message.content);
+  else if (event.type === "tool/result") text = JSON.stringify(event.data || "").slice(0, 400);
+  if (text) {
+    const low = text.toLowerCase();
+    let phase = evPhase;
+    if (/预检|precheck/.test(text)) phase = "工程预检";
+    else if (/迭代|优化|iterat|optimiz/.test(text)) phase = "优化迭代（已 " + evToolCount + " 步）";
+    else if (/审计|audit|unite|指纹|mesh/.test(low)) phase = "最终审计 / Critical Checks";
+    else if (/(交付|final|PASS|达标)/.test(text)) phase = "达标判定 / 交付求解";
+    if (phase !== evPhase) { evPhase = phase; document.getElementById("evPhase").textContent = phase; }
+  } else if (event.type === "turn/start") {
+    evPhase = "模型回合";
+    document.getElementById("evPhase").textContent = evPhase;
+  }
+}
+function processSessionEvent(event) {
+  if (!event || typeof event.seq !== "number") return;
+  evSeq = Math.max(evSeq, event.seq);
+  document.getElementById("evSeq").textContent = evSeq;
+
+  if (event.type === "user/message") {
+    appendChatMsg("user", extractBlocksText(event.data && event.data.content));
+  } else if (event.type === "assistant/message") {
+    const text = extractBlocksText(event.data && event.data.message && event.data.message.content);
+    appendChatMsg("assistant", text);
+    updateS11FromText(text);
+    collectFreqDbFromText(text);   // 运行监控：采集 频率–S11 数据点
+    if (runState === "prchecking") judgePrecheck(text);
+  } else if (event.type === "assistant/chunk") {
+    const chunk = event.data && event.data.chunk;
+    if (chunk && chunk.type === "text" && typeof chunk.text === "string") appendChatChunk(chunk.text);
+  } else if (event.type === "step/end") {
+    evToolCount += 1;
+    document.getElementById("evTools").textContent = evToolCount;
+    updateKPI(evToolCount);
+  }
+  inferPhaseFromEvent(event);
+}
+function appendChatMsg(role, text) {
+  const view = document.getElementById("chatView");
+  if (!text) return;
+  const div = document.createElement("div");
+  div.className = "chat-msg " + role;
+  const label = document.createElement("div"); label.className = "chat-label";
+  label.textContent = role === "user" ? "我" : "大模型";
+  const body = document.createElement("div"); body.className = "chat-body"; body.textContent = text;
+  div.appendChild(label); div.appendChild(body);
+  view.appendChild(div);
+  view.scrollTop = view.scrollHeight;
+}
+function appendChatChunk(text) {
+  const view = document.getElementById("chatView");
+  const last = view.lastElementChild;
+  if (last && last.classList.contains("chat-msg") && last.classList.contains("assistant")) {
+    const body = last.querySelector(".chat-body");
+    if (body) { body.textContent += text; view.scrollTop = view.scrollHeight; return; }
+  }
+  appendChatMsg("assistant", text);
+}
+
+/* ============================================================
+   日志
+   ============================================================ */
+function addLog(entry) {
+  actionLogs.unshift("[" + nowStamp() + "] " + entry);
+  if (actionLogs.length > 5) actionLogs.pop();
+  renderLogs();
+}
+function renderLogs() {
+  const box = document.getElementById("logList");
+  if (!box) return;
+  box.innerHTML = "";
+  actionLogs.forEach((l) => { const d = document.createElement("div"); d.className = "log-item"; d.textContent = l; box.appendChild(d); });
+}
+
+/* ============================================================
+   频段卡片（三频段独立阈值 + 谐振约束）
+   ============================================================ */
+function renderBands() {
+  const container = document.getElementById("bandCards");
+  container.innerHTML = "";
+  BANDS.forEach((b) => {
+    const st = bandState[b.key] = bandState[b.key] || {
+      on: bandEnabled.has(b.id), threshold: "-8", custom: "",
+      resOn: false, resFreq: "", resS11: "-15", resCustom: "",
+    };
+    const card = document.createElement("div");
+    card.className = "band-card" + (st.resOn ? " res-on" : "");
+
+    const head = document.createElement("div"); head.className = "band-head";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = b.id; cb.checked = st.on;
+    cb.addEventListener("change", () => {
+      st.on = cb.checked;
+      if (cb.checked) bandEnabled.add(b.id); else bandEnabled.delete(b.id);
+      head.classList.toggle("checked", cb.checked);
+    });
+    const headLabel = document.createElement("span");
+    headLabel.textContent = " " + b.label + (st.resOn ? "　（谐振约束开启）" : "");
+    head.appendChild(cb); head.appendChild(headLabel);
+
+    const fields = document.createElement("div"); fields.className = "band-fields";
+    // S11 阈值
+    const th = document.createElement("div"); th.className = "bf";
+    const thLabel = document.createElement("label"); thLabel.textContent = "S11 ≤";
+    const thSel = document.createElement("select");
+    THRESHOLD_OPTIONS.forEach((o) => { const op = document.createElement("option"); op.value = o.value; op.textContent = o.label; thSel.appendChild(op); });
+    thSel.value = st.threshold;
+    const thCustom = document.createElement("input"); thCustom.type = "number"; thCustom.step = "0.5"; thCustom.placeholder = "-12.5"; thCustom.value = st.custom; thCustom.style.width = "80px"; thCustom.hidden = thSel.value !== "custom";
+    const syncTh = () => { st.threshold = thSel.value; thCustom.hidden = thSel.value !== "custom"; };
+    thSel.addEventListener("change", syncTh);
+    thCustom.addEventListener("input", () => { st.custom = thCustom.value; });
+    const thUnit = document.createElement("span"); thUnit.className = "unit"; thUnit.textContent = "dB";
+    th.append(thLabel, thSel, thCustom, thUnit);
+
+    // 谐振点约束
+    const res = document.createElement("div"); res.className = "bf";
+    const resCb = document.createElement("input"); resCb.type = "checkbox"; resCb.checked = st.resOn;
+    const resLabel = document.createElement("label"); resLabel.textContent = "谐振";
+    const resFreq = document.createElement("input"); resFreq.type = "number"; resFreq.step = "0.01"; resFreq.placeholder = "2.44"; resFreq.value = st.resFreq; resFreq.style.width = "80px";
+    const resFreqUnit = document.createElement("span"); resFreqUnit.className = "unit"; resFreqUnit.textContent = "GHz 处 S11 ≤";
+    const resSel = document.createElement("select");
+    RES_S11_OPTIONS.forEach((o) => { const op = document.createElement("option"); op.value = o.value; op.textContent = o.label; resSel.appendChild(op); });
+    resSel.value = st.resS11;
+    const resCustom = document.createElement("input"); resCustom.type = "number"; resCustom.step = "0.5"; resCustom.placeholder = "-18"; resCustom.value = st.resCustom; resCustom.style.width = "80px";
+    const syncRes = () => {
+      st.resOn = resCb.checked; st.resS11 = resSel.value;
+      resFreq.hidden = !st.resOn; resFreqUnit.hidden = !st.resOn; resSel.hidden = !st.resOn;
+      resCustom.hidden = !(st.resOn && resSel.value === "custom");
+      card.classList.toggle("res-on", st.resOn);
+      headLabel.textContent = " " + b.label + (st.resOn ? "　（谐振约束开启）" : "");
+    };
+    resCb.addEventListener("change", syncRes);
+    resSel.addEventListener("change", syncRes);
+    resFreq.addEventListener("input", () => { st.resFreq = resFreq.value; });
+    resCustom.addEventListener("input", () => { st.resCustom = resCustom.value; });
+    res.append(resCb, resLabel, resFreq, resFreqUnit, resSel, resCustom);
+
+    fields.append(th, res);
+    card.appendChild(head); card.appendChild(fields);
+    container.appendChild(card);
+    syncRes(); // 初始化可见性
+  });
+}
+
+/* ============================================================
+   指令组装（三个 Skill 声明；显式字段；MCP 执行）
+   ============================================================ */
+function readConfig() {
+  const bands = BANDS.map((b) => {
+    const st = bandState[b.key];
+    let thr = -8;
+    if (st.threshold === "custom") thr = Number(st.custom) || -8; else thr = Number(st.threshold) || -8;
+    let res = null;
+    if (st.resOn && st.resFreq !== "" && isFinite(Number(st.resFreq)) && Number(st.resFreq) > 0) {
+      const s = st.resS11 === "custom" ? Number(st.resCustom) : Number(st.resS11);
+      if (isFinite(s) && s < 0) res = { freq: Number(st.resFreq), s11: s };
+    }
+    return { key: b.key, label: b.label, threshold: thr, resonance: res, on: st.on };
+  }).filter((b) => b.on);
+
+  return {
+    projectDir: document.getElementById("inpProjectDir").value.trim(),
+    projectFile: document.getElementById("inpProjectFile").value.trim(),
+    antennaPath: document.getElementById("inpAntennaPath").value.trim() || DEFAULT_ANTENNA_PATH,
+    substratePath: document.getElementById("inpSubstratePath").value.trim() || DEFAULT_SUBSTRATE_PATH,
+    cwd: document.getElementById("inpCwd").value.trim(),
+    bands,
+    maxIterations: Number(document.getElementById("inpMaxIter").value) || 15,
+    stopStrategy: document.getElementById("selStop").value,
+    thickness: document.getElementById("inpThickness").value || "0.035",
+    material: document.getElementById("inpMaterial").value.trim() || "copper (annealed)",
+    substrateSize: document.getElementById("inpSubstrateSize").value.trim() || DEFAULT_SUBSTRATE_SIZE,
+    mesh: {
+      x: document.getElementById("inpMeshX").value || "0.1",
+      y: document.getElementById("inpMeshY").value || "0.1",
+      z: document.getElementById("inpMeshZ").value || "0.1",
+    },
+    portDir: document.getElementById("selPortDir").value,
+    strategies: ["stScale", "stStub", "stMesh"].filter((id) => document.getElementById(id).checked).map((id) => ({ stScale: "缩放重试", stStub: "增加短截线", stMesh: "强制细化网格" }[id])),
+    special: {
+      effSuppress: document.getElementById("spEfficiencySuppress").checked ? { target: document.getElementById("spEffTarget").value || "-20" } : null,
+      isolation: document.getElementById("spIsolation").checked ? { max: document.getElementById("spIsoMax").value || "-25" } : null,
+      custom: document.getElementById("spCustom").checked ? document.getElementById("spCustomText").value.trim() : "",
+    },
+    customCommands: document.getElementById("txtCustomCommands").value.trim(),
+  };
+}
+
+function validate() {
+  const errors = [], warnings = [];
+  const cfg = readConfig();
+  const dir = cfg.projectDir, file = cfg.projectFile;
+  [["inpProjectDir", !!dir], ["inpProjectFile", !!file], ["inpAntennaPath", !!cfg.antennaPath], ["inpSubstratePath", !!cfg.substratePath], ["inpMaxIter", document.getElementById("inpMaxIter").value !== ""]]
+    .forEach(([id, ok]) => document.getElementById(id).classList.toggle("invalid", !ok));
+  if (!dir) errors.push("目标工程路径不能为空。");
+  if (!file) errors.push("目标工程文件不能为空。");
+  else if (!/\.cst$/i.test(file)) errors.push("目标工程文件必须以 .cst 结尾。");
+  if (!cfg.antennaPath) errors.push("天线对象路径不能为空。");
+  if (!cfg.substratePath) errors.push("基板对象路径不能为空。");
+  if (cfg.bands.length === 0) errors.push("请至少启用一个频段。");
+  const n = Number(document.getElementById("inpMaxIter").value);
+  if (!Number.isInteger(n)) errors.push("最大迭代次数必须为整数。");
+  else if (n < 1) errors.push("最大迭代次数必须 ≥ 1。");
+  else if (n < 5 || n > 50) warnings.push("建议迭代次数 5~50（不影响执行）。");
+  cfg.bands.forEach((b) => {
+    const band = BANDS.find((x) => x.key === b.key);
+    if (b.resonance && (b.resonance.freq < band.range.lo || b.resonance.freq > band.range.hi)) {
+      warnings.push("频段 " + b.label + " 谐振频点 " + b.resonance.freq + " GHz 不在 " + band.range.lo + "–" + band.range.hi + " 内，请确认（不阻断）。");
+    }
+  });
+  return { errors, warnings };
+}
+
+function buildInstruction(cfg) {
+  const baseName = baseNameOf(cfg.projectFile);
+  const outputName = FIXED_CONFIG.resultFileTemplate.replace(/\{原工程名\}/g, baseName).replace(/\{日期\}/g, todayStr());
+  const fullPath = joinPath(cfg.projectDir, cfg.projectFile);
+  const bandList = cfg.bands.map((b) => "- " + b.label).join("\n");
+  const bandLines = cfg.bands.map((b, i) => {
+    let line = "- 频段 " + b.label + "：S11 ≤ " + b.threshold + " dB" + (cfg.bands.length > 1 ? "（指标 " + (i + 1) + "）" : "");
+    if (b.resonance) line += "\n  - 谐振频点深度约束：" + b.label + " 内 " + b.resonance.freq + " GHz 处 S11 ≤ " + b.resonance.s11 + " dB";
+    return line;
+  }).join("\n");
+  const stopMap = { onTarget: "达标即止（达到全部频段阈值即终止）", onLimit: "达上限即止（达到最大迭代次数才终止）", either: "两者任一（达标或达上限即终止）" };
+  const strategies = cfg.strategies.length ? cfg.strategies.join("；") : "无（异常案例标记 blocked_case 并归档）";
+  const strategyBlock = DEFAULT_STRATEGY_TEXT.split(/\r?\n/).map((l) => "  " + l).join("\n");
+
+  const specialLines = [];
+  if (cfg.special.effSuppress) specialLines.push("- 特殊任务：4.80 GHz 处效率抑制（带外效率 ≤ " + cfg.special.effSuppress.target + " dB）");
+  if (cfg.special.isolation) specialLines.push("- 特殊任务：隔离度要求——S21、S12 ≤ " + cfg.special.isolation.max + " dB（隔离度越大越好，越负越优：如 -35 dB 优于 -25 dB；多端口时）");
+  if (cfg.special.custom) cfg.special.custom.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).forEach((c) => specialLines.push("- 自定义性能指标：" + c));
+
+  const commands = cfg.customCommands ? cfg.customCommands.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : [];
+  const commandsBlock = commands.length ? "\n# 15. 用户自定义指令\n" + commands.map((c) => "- " + c).join("\n") : "";
+
+  return "【DSH 任务指令】板载天线自动化仿真优化\n" +
+    "（本指令由“AI 全流程板载天线设计 DSH 插件”生成；默认通过 cst-studio-suite MCP 驱动 CST Studio Suite 2026 执行）\n\n" +
+    SKILL_PREAMBLE + "\n\n" +
+    "# 任务目标\n基于现有 CST 工程对板载天线执行自动化仿真迭代优化：在指定频段内使 S11 达到阈值（含边界，S11 ≤ 阈值即达标），并在最大迭代次数内收敛。\n\n" +
+    "# 1. 工程信息\n- 目标工程路径：" + cfg.projectDir + "\n- 目标工程文件：" + cfg.projectFile + "\n- 目标工程完整路径：" + fullPath + "\n- 执行方式：复制源工程及其伴随目录到 cst_runs/<run>_<日期>/ 工作副本，禁止覆盖源工程。\n\n" +
+    "# 2. 工作频段\n" + bandList + "\n\n" +
+    "# 3. 性能硬指标（S11 阈值，含边界，S11 ≤ 阈值即达标）\n" + bandLines + "\n\n" +
+    "# 4. 特殊任务（显式约束，需在结果验证中单独判定）\n" + (specialLines.length ? specialLines.join("\n") : "- （无）") + "\n\n" +
+    "# 5. 迭代控制\n- 迭代次数上限：" + cfg.maxIterations + "\n- 终止策略：" + stopMap[cfg.stopStrategy] + "\n\n" +
+    "# 6. 高级设置\n- 天线厚度：" + cfg.thickness + " mm\n- 天线材料：" + cfg.material + "\n- 基板尺寸：" + cfg.substrateSize + "\n- 局部网格尺寸：(" + cfg.mesh.x + ", " + cfg.mesh.y + ", " + cfg.mesh.z + ") mm\n- 馈电阻抗：" + FIXED_CONFIG.impedance + "（固定，不可更改）\n- 馈电端口方向：" + cfg.portDir + "（Discrete Port 可沿 X/Y/Z）\n\n" +
+    "# 7. 刚性约束（操作权限与固定配置，不得违反）\n- 天线对象路径：" + cfg.antennaPath + "\n- 基板对象路径：" + cfg.substratePath + "\n- 馈电类型：" + FIXED_CONFIG.feedType + "\n- 馈电阻抗：" + FIXED_CONFIG.impedance + "\n- 禁止修改：" + FIXED_CONFIG.forbiddenModifications.join("、") + "\n- 默认锁定：边界条件、全局求解器类型、全局网格划分策略、场监视器不自主设置（沿用源工程有效设置）。\n\n" +
+    "# 8. 馈电端口注意事项（每次任务自动加入，必须遵守）\n" + PORT_NOTES.map((p) => "- " + p).join("\n") + "\n\n" +
+    "# 9. 设计自由度与优化策略\n- 设计自由度：以源工程既有参数为基准，可调天线几何参数（辐射体尺寸、馈电位置、枝节长度等）；不得改动第 7 节刚性约束所列对象。\n- 默认优化策略（cst-onboard-antenna skill 的具体技巧）：\n" + strategyBlock + "\n\n" +
+    "# 10. 自动化执行流程\n1) 复制源工程及伴随目录到工作副本；2) 每轮：写参数→rebuild→轻量预检查（端口连接、材料/边界完整、无致命 CAD/网格错误）→保存→求解→读取结果；3) 按第 3 节指标判定；4) 达标或达上限即止，输出最优候选与差距。\n\n" +
+    "# 11. 异常处理硬逻辑\n- " + strategies + "\n\n" +
+    "# 12. 输出配置（后台固定）\n- 结果工程名：" + outputName + "\n- 报告输出格式：" + FIXED_CONFIG.reportFormats.join("、") + "\n\n" +
+    "# 13. 最终交付物标准\n- 工作副本 .cst 路径与 run manifest；S11 曲线与频点表、各频带最差值/目标值/PASS-FAIL；拓扑/网格/端口/求解器四类指纹与 Critical Checks 记录；Word 文档与纯文本摘要报告。\n" +
+    "# 14. 审计提示\n- “求解完成”不等于“优化完成”；最终结果必须通过 Critical Checks 最终门禁（Boolean Unite / 局部网格覆盖 / CAD 与 mesh-only 预检查）且四类指纹一致后方可交付。" +
+    commandsBlock + "\n";
+}
+
+/* 工程预检指令：只检测不改动 */
+function buildPrecheckInstruction() {
+  const cfg = readConfig();
+  const fullPath = joinPath(cfg.projectDir, cfg.projectFile);
+  return "【工程预检】请对以下 CST 工程执行预检，不要开始优化或求解，仅返回检测结果：\n" +
+    "工程：" + fullPath + "\n天线对象路径：" + cfg.antennaPath + "\n基板对象路径：" + cfg.substratePath + "\n\n" +
+    "检查项（每项输出 PASS 或 FAIL）：\n" +
+    "1) CST Studio Suite 2026 与 cst-studio-suite MCP 是否可用；\n" +
+    "2) 源工程是否存在且可读取（只读，不得修改源工程）；\n" +
+    "3) 工作副本是否可拷贝到 cst_runs/ 且源工程锁文件正常；\n" +
+    "4) 天线/基板对象路径是否与工程树完全一致（不一致则 FAIL 并给出正确路径）；\n" +
+    "5) 端口/边界/求解器/网格/监视器配置是否完整可解。\n\n" +
+    "最终输出一行：PASS（可启动仿真）或 FAIL（并列出全部阻断原因）。";
+}
+
+/* ============================================================
+   控制：启动（预检→运行）/ 暂停 / 继续 / 取消 / 断线恢复
+   ============================================================ */
+function showErrors(errors) {
+  const box = document.getElementById("errorBox");
+  const list = document.getElementById("errorList");
+  list.innerHTML = "";
+  errors.forEach((e) => { const li = document.createElement("li"); li.textContent = e; list.appendChild(li); });
+  box.classList.add("show");
+}
+function hideErrors() { document.getElementById("errorBox").classList.remove("show"); }
+
+async function ensureChatSession() {
+  if (chatSession !== null) return;
+  const createPayload = {};
+  const cwd = document.getElementById("inpCwd").value.trim() || DEFAULT_CWD;
+  createPayload.cwd = cwd;
+  const created = await dshRpc("session.create", createPayload);
+  chatSession = created.sessionId;
+  chatLastSeq = 0;
+  addLog("已创建会话：" + chatSession);
+}
+async function sendToChat(text) {
+  await dshRpc("session.prompt", { sessionId: chatSession, mode: "queue", content: [{ type: "text", text }] });
+  appendChatMsg("user", text);
+  connectChatSocket();
+  startChatPolling();
+}
+
+async function startSimulation() {
+  const { errors, warnings } = validate();
+  if (errors.length) { showErrors(errors); toast("参数校验未通过，请修正红色字段", "err"); return; }
+  warnings.forEach((w) => toast(w, "warn", 4200));
+  hideErrors();
+
+  if (!isDSHSameOrigin()) {
+    const text = buildInstruction(readConfig());
+    await copyToClipboard(text);
+    toast("本地模式无法执行仿真（需同源访问 DSH）：已复制完整指令。请通过 http://127.0.0.1:3080/antenna-optimizer-config-panel.html 打开后启动仿真。", "warn", 8000);
+    return;
+  }
+
+  runId = "RUN-" + todayStr() + "-" + Math.random().toString(36).slice(2, 6);
+  document.getElementById("runId").innerHTML = "run_id: <b>" + runId + "</b>";
+  addLog("创建 run_id：" + runId);
+  document.getElementById("precheckBlocked").hidden = true;
+  resetRunMonitor(); // 清空并重置运行监控（曲线与汇总表）
+
+  // 预检阶段
+  setRunState("prchecking");
+  document.getElementById("precheckList").innerHTML = "<span style='color:var(--text-sub);font-size:12.5px;'>正在执行工程预检（CST MCP / 工程 / 路径一致性 / 配置完整性）…</span>";
+  try {
+    await ensureChatSession();
+    await sendToChat(buildPrecheckInstruction());
+    toast("工程预检已发起；通过后自动进入优化迭代", "warn", 3600);
+  } catch (e) {
+    setRunState("failed");
+    document.getElementById("precheckBlocked").hidden = false;
+    document.getElementById("precheckBlocked").textContent = "⛔ 无法发起预检：" + e.message + "（请检查 DSH/CST MCP 状态）";
+  }
+}
+
+async function pauseSimulation() {
+  if (!chatSession) return;
+  setRunState("paused");
+  try {
+    await sendToChat("【控制指令】请立即暂停当前优化迭代并保持状态；只确认“已暂停”，不要继续执行或求解。");
+    toast("已请求暂停（DSH 端尽力而为，模型将在收到指令后停止）", "warn", 4500);
+  } catch (e) { toast("暂停请求失败：" + e.message, "err"); }
+}
+async function resumeSimulation() {
+  if (!chatSession) return;
+  setRunState("resuming");
+  try {
+    await sendToChat("【控制指令】请继续之前暂停的优化迭代，从上一步状态恢复。");
+    setRunState("running");
+    toast("已请求继续");
+  } catch (e) { toast("继续请求失败：" + e.message, "err"); }
+}
+async function cancelSimulation() {
+  if (!chatSession) return;
+  if (!confirm("确认取消任务 " + runId + "？将终止当前 DSH 会话（不可恢复，工作副本保留）。")) return;
+  try {
+    await dshRpc("session.cancel", { sessionId: chatSession });
+    stopChatPolling();
+    disconnectChatSocket();
+    setRunState("cancelled");
+    toast("任务已取消", "err", 4000);
+  } catch (e) { toast("取消失败：" + e.message, "err"); }
+}
+async function recoverSimulation() {
+  if (chatSession === null) { toast("尚无会话：先启动仿真后才有可恢复的 run", "warn"); return; }
+  setRunState("recovering");
+  await snapshotChatHistory();
+  connectChatSocket();
+  setRunState("running");
+  toast("已恢复对会话 " + chatSession + " 的实时监控");
+}
+
+/* 预检判定（启发式解析 assistant 文本） */
+function judgePrecheck(text) {
+  const fail = /\bFAIL\b|预检失败|阻断原因|检查项.*失败|无法打开|路径不一致/.test(text);
+  const pass = /^PASS\b|\bPASS\b|预检通过|检查通过|全部通过|可启动/.test(text) && !fail;
+  if (fail) {
+    setRunState("failed");
+    document.getElementById("precheckBlocked").hidden = false;
+    document.getElementById("precheckBlocked").innerHTML = "⛔ 工程预检未通过，阻断原因：<br>" + text.replace(/\n/g, "<br>").slice(0, 2000);
+    addLog("预检失败（阻断）");
+    return;
+  }
+  if (pass) {
+    document.getElementById("precheckBlocked").hidden = true;
+    document.getElementById("precheckList").innerHTML = "";
+    ["CST MCP 可用", "源工程只读可访问", "工作副本可拷贝", "天线/基板路径一致", "求解配置完整可解"].forEach((n) => {
+      const div = document.createElement("div");
+      div.className = "precheck-item ok";
+      div.innerHTML = "<span class='st'>✓</span>" + n;
+      document.getElementById("precheckList").appendChild(div);
+    });
+    addLog("工程预检通过 → 进入优化迭代");
+    setRunState("running");
+    sendToChat(buildInstruction(readConfig())).then(() => {
+      toast("预检通过，优化迭代已启动（MCP 驱动）", "ok", 4200);
+    }).catch((e) => toast("启动失败：" + e.message, "err"));
+  }
+}
+
+/* ============================================================
+   其余交互
+   ============================================================ */
+/* 真实目录扫描：File System Access API（showDirectoryPicker）。
+   点击“扫描 .cst”→ 弹 Win10 原生目录选择器 → 读取所选目录下的真实 .cst 文件，
+   并与“目标工程路径”目录名做一致性校验；匹配时自动拼接完整路径。
+   仅扫描所选目录顶层（目标工程路径下的工程文件），不递归子目录。 */
+let scanResults = []; // [{rel, name}]
+async function scanProjectFiles() {
+  if (!window.showDirectoryPicker) {
+    toast("当前浏览器不支持目录读取（请使用 Chrome/Edge 100+）", "err", 4000);
+    return;
+  }
+  let dirHandle;
+  try {
+    dirHandle = await window.showDirectoryPicker();
+  } catch (e) {
+    if (e && e.name !== "AbortError") toast("目录选择失败：" + (e.message || e), "err", 4000);
+    return; // 用户取消则不提示
+  }
+  const datalist = document.getElementById("cstFileList");
+  const hint = document.getElementById("scanHint");
+  // 读取所选目录顶层的 .cst 文件
+  scanResults = [];
+  try {
+    for await (const entry of dirHandle.values()) {
+      if (entry.kind === "file" && /\.cst$/i.test(entry.name)) {
+        scanResults.push({ rel: entry.name, name: entry.name });
+      }
+    }
+  } catch (e) {
+    hint.textContent = "读取目录失败：" + (e.message || e) + "（可改用“选择文件…”或手动输入）";
+    toast("读取目录失败", "err", 4000);
+    return;
+  }
+  datalist.innerHTML = "";
+  if (!scanResults.length) {
+    hint.textContent = "目录「" + dirHandle.name + "」下未找到 .cst 工程文件；可直接输入文件名或点击“选择文件…”。";
+    toast("未扫描到 .cst 文件", "warn", 3000);
+    return;
+  }
+  scanResults.forEach((r) => {
+    const op = document.createElement("option");
+    op.value = r.rel;
+    datalist.appendChild(op);
+  });
+  // 目录一致性校验：扫描目录名 应与 目标工程路径目录名 一致
+  const dir = document.getElementById("inpProjectDir").value.trim();
+  const base = dir ? dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() : "";
+  let note = "";
+  if (base && dirHandle.name !== base) {
+    note = " ⚠ 注意：扫描目录名（" + dirHandle.name + "）与目标工程路径目录名（" + base + "）不一致，请确认扫描的是目标目录。";
+  } else if (!base) {
+    note = " ⚠ 目标工程路径为空，扫描结果仅列出文件名，不会拼接路径。";
+  }
+  hint.textContent = "已从目录「" + dirHandle.name + "」扫描到 " + scanResults.length + " 个 .cst：" +
+    scanResults.slice(0, 6).map((r) => r.name).join("、") + (scanResults.length > 6 ? " 等" : "") + "。" + note;
+  toast("扫描完成：" + scanResults.length + " 个 .cst", "ok", 3200);
+  autoJoinFirstScanFile(dirHandle.name, base);
+}
+/* 目录名一致时自动拼接第一个文件为完整路径 */
+function autoJoinFirstScanFile(dirName, baseName) {
+  if (!scanResults.length) return;
+  if (baseName && baseName === dirName) {
+    const dir = document.getElementById("inpProjectDir").value.trim();
+    if (dir) {
+      const full = joinPath(dir, scanResults[0].name);
+      document.getElementById("inpProjectFile").value = full;
+      document.getElementById("scanHint").textContent =
+        "已自动填入完整路径：" + full + "（目标工程路径 + 扫描文件）";
+    }
+  }
+}
+/* “选择文件…”：直接选一个 .cst 文件，填入真实文件名 */
+function onPickFileChange(e) {
+  const f = e.target.files && e.target.files[0];
+  if (f) {
+    document.getElementById("inpProjectFile").value = f.name;
+    document.getElementById("scanHint").textContent =
+      "已选择文件：" + f.name + "（如果是 .cst，请确认与“目标工程路径”目录对应）。";
+    toast("已选择工程文件：" + f.name, "ok", 2600);
+  }
+  e.target.value = "";
+}
+function refreshDynamic() {
+  const cfg = readConfig();
+  document.getElementById("copyPreview").textContent = configCopyPath(cfg);
+  document.getElementById("cwdPill").textContent = "副本：" + configCopyPath(cfg);
+  const base = baseNameOf(cfg.projectFile);
+  document.getElementById("evManifest").textContent = FIXED_CONFIG.resultFileTemplate.replace(/\{原工程名\}/g, base).replace(/\{日期\}/g, todayStr());
+  if (!cfg.projectFile) document.getElementById("evManifest").textContent = "—";
+}
+
+/* 配置记忆：localStorage 保存/恢复，重开面板自动还原上次配置（智能便捷） */
+const STATE_KEY = "cst-console-config-v1";
+const STATE_FIELD_IDS = ["inpProjectDir", "inpProjectFile", "inpCwd", "inpAntennaPath", "inpSubstratePath",
+  "inpMaxIter", "selStop", "inpThickness", "inpMaterial", "inpSubstrateSize",
+  "inpMeshX", "inpMeshY", "inpMeshZ", "selPortDir", "txtCustomCommands",
+  "spEfficiencySuppress", "spEffTarget", "spIsolation", "spIsoMax", "spCustom", "spCustomText"];
+function savePanelState() {
+  try {
+    const fields = {};
+    STATE_FIELD_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      fields[id] = (el.type === "checkbox") ? el.checked : el.value;
+    });
+    localStorage.setItem(STATE_KEY, JSON.stringify({ fields, bandEnabled: [...bandEnabled], bandState }));
+  } catch (e) { /* 忽略存储错误 */ }
+}
+function loadPanelState() {
+  try {
+    const raw = localStorage.getItem(STATE_KEY);
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    if (p.fields) Object.keys(p.fields).forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const val = p.fields[id];
+      if (el.type === "checkbox") el.checked = !!val;
+      else if (val !== undefined && val !== null) el.value = val;
+    });
+    if (Array.isArray(p.bandEnabled)) bandEnabled = new Set(p.bandEnabled);
+    if (p.bandState && typeof p.bandState === "object") bandState = p.bandState;
+  } catch (e) { /* 忽略解析错误 */ }
+}
+/* 配置卡片折叠状态记忆：恢复与保存（默认：① ② 展开，其余收起） */
+const FOLD_IDS = ["secProject", "secBands", "secSpecial", "secIter", "secAdvance", "secCommands"];
+const FOLD_DEFAULT_OPEN = { secProject: true, secBands: true };
+function restoreFolds() {
+  FOLD_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let saved = null;
+    try { saved = localStorage.getItem("fold-" + id); } catch (e) {}
+    if (saved === null) el.open = !!FOLD_DEFAULT_OPEN[id];
+    else el.open = saved === "1";
+  });
+}
+function bindFoldMemory() {
+  FOLD_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("toggle", () => {
+      try { localStorage.setItem("fold-" + id, el.open ? "1" : "0"); } catch (e) {}
+    });
+  });
+}
+function generateOnly() {
+  const { errors, warnings } = validate();
+  if (errors.length) { showErrors(errors); toast("参数校验未通过", "err"); return; }
+  warnings.forEach((w) => toast(w, "warn", 4200));
+  hideErrors();
+  const text = buildInstruction(readConfig());
+  document.getElementById("chatInput").value = text;
+  addLog("生成指令（" + text.length + " 字符）");
+  copyToClipboard(text).then((ok) => toast(ok ? "指令已生成并复制，可点“发送”或由“启动仿真”自动执行" : "指令已生成，请复制", ok ? "ok" : "warn", 4200));
+}
+async function sendChatMessageManually() {
+  const text = document.getElementById("chatInput").value.trim();
+  if (!text) { toast("输入框为空", "warn"); return; }
+  if (!isDSHSameOrigin()) { await copyToClipboard(text); toast("本地模式已复制，请改用同源地址发送", "warn", 6000); return; }
+  try {
+    await ensureChatSession();
+    if (runState === "idle") setRunState("running");
+    await sendToChat(text);
+    document.getElementById("chatInput").value = "";
+    toast("已发送，对话窗口实时显示输出", "ok");
+  } catch (e) { toast("发送失败：" + e.message, "err"); }
+}
+
+/* ============================================================
+   init
+   ============================================================ */
+function init() {
+  loadPanelState();          // 恢复上次配置（localStorage 记忆）
+  restoreFolds();            // 恢复配置卡片折叠状态
+  bindFoldMemory();          // 折叠状态保存
+  renderBands();
+  refreshDynamic();
+  setRunState("idle");
+  renderLogs();
+
+  // 顶栏真实运行状态
+  const dshEl = document.getElementById("dshStatus");
+  const mcpEl = document.getElementById("mcpStatus");
+  if (isDSHSameOrigin()) {
+    dshEl.className = "pill ok";
+    dshEl.innerHTML = "<span class='dot'></span>DSH：在线";
+    mcpEl.className = "pill warn";
+    mcpEl.innerHTML = "<span class='dot'></span>CST MCP：任务内探测";
+  } else {
+    dshEl.className = "pill warn";
+    dshEl.innerHTML = "<span class='dot'></span>DSH：离线（file:// 降级）";
+    mcpEl.className = "pill err";
+    mcpEl.innerHTML = "<span class='dot'></span>CST MCP：需同源地址";
+  }
+
+  document.getElementById("btnStart").addEventListener("click", startSimulation);
+  document.getElementById("btnPause").addEventListener("click", pauseSimulation);
+  document.getElementById("btnResume").addEventListener("click", resumeSimulation);
+  document.getElementById("btnCancel").addEventListener("click", cancelSimulation);
+  document.getElementById("btnRecover").addEventListener("click", recoverSimulation);
+  document.getElementById("btnChatSend").addEventListener("click", sendChatMessageManually);
+  document.getElementById("btnGenerateOnly").addEventListener("click", generateOnly);
+  document.getElementById("btnCopy").addEventListener("click", async () => {
+    const text = document.getElementById("chatInput").value.trim();
+    if (!text) { toast("输入框为空", "warn"); return; }
+    await copyToClipboard(text);
+    addLog("复制指令（" + text.length + " 字符）");
+    toast("已复制");
+  });
+  document.getElementById("btnClearChat").addEventListener("click", () => {
+    disconnectChatSocket(); stopChatPolling();
+    chatSession = null; chatLastSeq = 0;
+    document.getElementById("chatView").innerHTML = "";
+    document.getElementById("chatInput").value = "";
+    setRunState("idle");
+    toast("对话已清空（任务状态保留）", "info", 2200);
+  });
+  document.getElementById("btnBrowse").addEventListener("click", openNativeDirectoryPicker);
+  document.getElementById("btnScan").addEventListener("click", scanProjectFiles);
+  document.getElementById("btnPickFile").addEventListener("click", () => { document.getElementById("pickFileInput").click(); });
+  document.getElementById("pickFileInput").addEventListener("change", onPickFileChange);
+
+  document.getElementById("spEfficiencySuppress").addEventListener("change", (e) => { document.getElementById("spEffTarget").disabled = !e.target.checked; });
+  document.getElementById("spIsolation").addEventListener("change", (e) => { document.getElementById("spIsoMax").disabled = !e.target.checked; });
+
+  ["inpProjectFile", "inpProjectDir", "inpCwd", "inpAntennaPath", "inpSubstratePath", "inpMaxIter",
+   "selStop", "inpThickness", "inpMaterial", "inpSubstrateSize", "inpMeshX", "inpMeshY", "inpMeshZ",
+   "selPortDir", "txtCustomCommands", "spCustomText"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", () => {
+      const el = document.getElementById(id);
+      el.classList.remove("invalid");
+      // 从扫描结果下拉选择了文件名 → 按“目标工程路径 + 文件名”拼接为完整路径
+      if (id === "inpProjectFile" && scanResults.length) {
+        const v = el.value.trim();
+        const hit = scanResults.find((r) => r.rel === v || r.name === v);
+        if (hit) {
+          const dir = document.getElementById("inpProjectDir").value.trim();
+          if (dir) {
+            el.value = joinPath(dir, hit.name);
+            document.getElementById("scanHint").textContent = "已拼接为完整路径：" + el.value;
+          }
+        }
+      }
+      refreshDynamic();
+      savePanelState();
+    });
+  });
+  ["spEfficiencySuppress", "spIsolation", "spCustom"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", () => savePanelState());
+  });
+  // 频段/阈值变化也保存
+  document.getElementById("bandCards").addEventListener("change", () => savePanelState());
+  // 运行监控初始化与窗口缩放重绘
+  drawChart();
+  updateResultTable();
+  let rsTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(rsTimer);
+    rsTimer = setTimeout(drawChart, 200);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
