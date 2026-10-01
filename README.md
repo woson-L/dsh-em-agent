@@ -1,7 +1,7 @@
 # DSH EM Agent
 
-面向天线设计的 DSH 插件。以单文件 Web 控制台承载板载天线仿真优化的完整流程：
-任务配置、模型驱动、S11 实时监控、结果交付。
+面向 CST 电磁仿真设计的 DSH 插件。以单文件 Web 控制台承载仿真优化的完整流程：
+任务配置、模型驱动、数据实时监控、结果交付。
 
 ## 功能
 
@@ -127,4 +127,3 @@ dsh web
 
 本项目采用 **MIT License**，详见 [LICENSE](LICENSE)。
 
-本项目不分发 CST Studio Suite（商业软件）与 `cst-studio-suite MCP` 服务端。二者需自行获取，并遵守各自许可。

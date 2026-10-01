@@ -1,6 +1,6 @@
 # DSH EM Agent（`dsh-em-agent` 插件包）
 
-把「AI Agent 全流程天线设计控制台」挂成 DSH Web 的一条路由，访问地址：
+把 DSH EM Agent 的控制台挂成 DSH Web 的一条路由，访问地址：
 
 ```
 http://127.0.0.1:3080/em-agent
