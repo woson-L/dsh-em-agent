@@ -1,7 +1,6 @@
 # DSH EM Agent
 
-面向 CST 电磁仿真设计的 DSH 插件。以单文件 Web 控制台承载仿真优化的完整流程：
-任务配置、模型驱动、数据实时监控、结果交付。
+DSH 插件，面向 CST 电磁仿真，支持任意频段天线设计。单文件 Web 控制台覆盖硬件设计全流程：任务配置、模型驱动、实时监控、结果交付。
 
 ## 功能
 
@@ -20,9 +19,10 @@ dsh web
 
 安装完成后访问 **`http://127.0.0.1:3080/em-agent`**。
 
-插件包声明 `dsh.bundle.patch`，安装时自动登记为 profile 层，无需手工编辑 profile 配置。
+插件包通过声明 dsh.bundle.patch，在安装时自动注册为 profile 层，无需手动编辑 profile 配置。
 
-完整流程（含首次配置、CST 与 MCP 依赖，以及可复制给 AI 的代做提示词）见 **[从 DSH Store 安装](docs/start/store.md)**。
+完整安装流程（包括首次配置、CST 与 MCP 依赖，以及可复制给 AI 的代做提示词）请参见从**[从 DSH Store 安装](docs/start/store.md)**。
+
 
 ## 文档
 
@@ -49,25 +49,25 @@ dsh web
 
 ```
 .
-├── README.md                     ← 本文件（文档索引）
+├── README.md                     ← 文档索引
 ├── AGENTS.md                     ← 文档同步政策（强制）
 ├── .gitattributes                ← 关闭换行转换（构建对基线换行敏感，见「开发约束」）
-├── docs/                         ← 全部文档，索引见 docs/README.md
+├── docs/                         ← 全部文档（索引见 docs/README.md）
 │   ├── start/                    ← 安装 / 依赖 / 启动
 │   ├── panel/                    ← 配置面板
-│   ├── constraints/              ← 天线仿真固定约束 FC1 / FC2（英）
+│   ├── constraints/              ← 天线仿真固定约束 FC1 / FC2
 │   ├── editor/                   ← 页面编辑器与区块
 │   ├── dev/                      ← 构建 / 测试 / 排查
 │   └── reference/                ← 安全 / 令牌 / 设计 / 验证
 │
 ├── src/
-│   ├── baseline/                 ← 原始基线（只读，不可直接修改）
+│   ├── baseline/                 ← 原始基线（只读，禁止修改）
 │   └── styles.css                ← 全部样式
 ├── build/
 │   ├── build.ps1                 ← 基线 + 样式 + 补丁 → dist/
 │   └── deploy.ps1                ← 构建 → 部署 → 渲染校验
-├── dist/                          ← 构建产物（由 build.ps1 生成；dist/*.html 与 dist/shots/ 不入库）
-├── test/                         ← 十一个真浏览器回归套件（+ 一个布局实测脚本）
+├── dist/                         ← 构建产物（由 build.ps1 生成；dist/*.html 与 dist/shots/ 不入库）
+├── test/                         ← 11 个真实浏览器回归套件（另含 1 个布局实测脚本）
 ├── tools/                        ← 截图与运维脚本
 ├── examples/                     ← 可直接导入的示例区块
 └── plugin/                       ← DSH 插件包
@@ -75,47 +75,44 @@ dsh web
 
 ## 外部依赖与权限
 
-本插件包不包含、不分发下列软件。二者需自行获取，并遵守各自许可。
+本插件包不包含且不分发以下软件。
 
-| 依赖 | 随插件分发 | 说明 |
-| --- | --- | --- |
-| CST Studio Suite 2026 | 否 | 商业软件，需自行购买与授权 |
-| `cst-studio-suite MCP` 服务端 | 否 | 独立 Python 包（MIT），需另行安装并注册到 DSH |
+| 依赖 | 随插件分发 | 说明                            |
+| --- | --- |-------------------------------|
+| CST Studio Suite 2026 | 否 | 商业软件，需自行安装                    |
+| `cst-studio-suite MCP` 服务端 | 否 | 独立包（MIT），需另行安装并注册到 DSH |
 
 ### 权限范围
 
 | 权限 | 范围 |
 | --- | --- |
-| 文件 | 只读。仅读取本包内的 `panel.html` 并回送，不读写工程文件 |
-| 网络 | 不发起外部请求。页面内的同源调用指向本机 DSH 实例 |
-| 进程 | 不启动子进程，不执行 Shell。无生命周期脚本：`preinstall`、`install`、`postinstall`、`prepare` 均为空 |
-| 凭据 | 不收集凭据。首次配置中的 CST 路径与 MCP 地址存于浏览器 `localStorage`，不发送至第三方 |
+| 文件 | 只读。仅读取本包内的 panel.html 并返回，不读写工程文件 |
+| 网络 | 不发起外部请求。页面内的同源调用仅指向本机 DSH 实例 |
+| 进程 | 不启动子进程，不执行 Shell。无生命周期脚本：preinstall、install、postinstall、prepare 均为空 |
+| 凭据 | 不收集凭据。首次配置中的 CST 路径与 MCP 地址存储于浏览器 localStorage，不会发送至第三方 |
 
-页面编辑器的脚本执行能力属于使用者自行编写的代码，不属于本插件的权限范围。
+页面编辑器的脚本执行能力由使用者自行编写的代码提供，不属于本插件的权限范围。
 详见 [安全说明](docs/reference/security.md)。
 
 ## 已知限制
 
-- 页面需通过 http(s) 同源地址访问。以 `file://` 直接打开 `panel.html` 时，依赖同源的能力降级为复制指令模式。
-- 首次配置存储于浏览器 `localStorage`，与 origin 绑定。更换端口或 host 后不可读取。首次配置未提供导出功能，迁移前需手工记录字段值。
-- `cst-studio-suite MCP` 未安装时页面仍可打开，配置、指令生成与页面编辑器可用，仿真不可执行。
-- 页面编辑器新增的区块默认允许执行脚本。取消勾选后，已注册的定时器与事件监听需刷新页面方可停止。
-- 单文件产物约 200 KB（内联全部 CSS 与图标）。首次加载不产生外部请求。
-
+- 页面需通过 http(s) 同源地址访问；以 `file://` 直接打开 `panel.html` 时，同源功能降级为复制指令模式。
+- 首次配置存于浏览器 `localStorage`，与 origin 绑定；更换端口或 host 后无法读取。该配置不支持导出，迁移前需手动记录字段值。
+- 未安装 `cst-studio-suite MCP` 时，页面仍可打开，配置、指令生成与页面编辑器均可用，但无法执行仿真。
+- 页面编辑器新增的区块默认允许执行脚本；取消勾选后，已注册的定时器与事件监听需刷新页面才能停止。
+- 单文件产物约 200 KB（CSS 与图标已内联），首次加载不发起外部请求。
 ## 开发约束
 
 修改本项目前需了解三项约束。
 
-**1. 基线只读。** `src/baseline/` 为不可变的原始页面。HTML 与行为改动以「精确命中 1 次」的补丁形式写入 `build/build.ps1`，样式改动写入 `src/styles.css`。构建产物需可证明等于「基线 + 恰好这些改动」。详见 [构建与硬门禁](docs/dev/build.md)。
+**1. 基线只读。 src/baseline/ 为不可变的原始页面。** HTML 与行为改动以「精确命中 1 次」的补丁形式写入 build/build.ps1，样式改动写入 src/styles.css。
+构建产物必须可证明等于「基线 + 恰好这些改动」。详见 [构建与硬门禁](docs/dev/build.md)。
 
-**2. 构建对字节敏感：BOM 与换行都不能变。** `build/build.ps1` 缺 UTF-8 BOM 时，在 Windows PowerShell 5.1 下无法解析（711 处语法错误）；`src/baseline/` 的换行被转成 CRLF 时，反向还原门禁会以「补丁命中 0 次」失败。仓库用 [`.gitattributes`](.gitattributes) 关闭换行转换，请勿删除；部分编辑器保存时会移除 BOM，改完 `.ps1` 请确认一次。
+**2. 构建对字节敏感：BOM 与换行均不可更改。**  build/build.ps1 缺少 UTF-8 BOM 时，在 Windows PowerShell 5.1 下无法解析（711 处语法错误）；
+src/baseline/ 的换行若被转为 CRLF，反向还原门禁将因「补丁命中 0 次」而失败。仓库通过 [`.gitattributes`](.gitattributes) 关闭换行转换，请勿删除；部分编辑器保存时会移除 BOM，改完 `.ps1` 请确认一次。
 
 **3. 文档同步是变更的组成部分。** 规则见 [AGENTS.md](AGENTS.md) 的文档同步政策。
 
-**4. 不要提交本机信息。** 本仓库公开分发，绝对路径、用户名、进程号、临时目录、真实令牌
-都不应入库。提交前跑一次 `node tools/check-leaks.cjs`（`--all` 连 `dist/` 一起扫）：
-它会按「文件:行号」列出命中项，退出码非 0 表示有残留。示例值请用 `C:\` 惯用路径或
-`<占位符>`。见 [构建与硬门禁](docs/dev/build.md) 的「提交前脱敏自检」。
 
 ## 路线图
 
