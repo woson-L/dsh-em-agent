@@ -7,13 +7,17 @@ DSH 插件，面向 CST 电磁仿真，支持任意频段天线设计。单文�
 - 单文件 HTML/CSS/JavaScript，无构建依赖，无外部资源；图标以内联 data URI 提供
 - 双主题，跟随系统 `prefers-color-scheme`
 - 内置页面编辑器，支持以 HTML 新增内容区块，并接收模型回传的数据
-- CST 操作经 `cst-studio-suite MCP` 驱动 CST Studio Suite 2026
+- CST 操作经 [`cst-studio-suite MCP`](https://github.com/woson-L/cst-studio-suite-mcp) 驱动 CST Studio Suite 2026
 - 提供 Web 路由，页面由插件包提供，不写入 DSH 安装目录
+
+## 视频演示
+
+[DSH EM Agent 演示视频](https://www.bilibili.com/video/BV1Rva66pEPJ/?vd_source=00d521011c32796f8fba56c033bc35ec)
 
 ## 安装
 
 ```bash
-dsh plugin --profile web add "'git+https://github.com/woson-L/dsh-em-agent.git#path:plugin'"
+dsh plugin --profile web add "git+https://github.com/woson-L/dsh-em-agent.git#path:plugin"
 dsh web
 ```
 
@@ -21,7 +25,7 @@ dsh web
 
 插件包通过声明 dsh.bundle.patch，在安装时自动注册为 profile 层，无需手动编辑 profile 配置。
 
-完整安装流程（包括首次配置、CST 与 MCP 依赖，以及可复制给 AI 的代做提示词）请参见从**[从 DSH Store 安装](docs/start/store.md)**。
+完整安装流程（包括首次配置、CST 与 MCP 依赖，以及可复制给 AI 的代做提示词）见 **[从 DSH Store 安装](docs/start/store.md)**。
 
 
 ## 文档
@@ -80,7 +84,7 @@ dsh web
 | 依赖 | 随插件分发 | 说明                            |
 | --- | --- |-------------------------------|
 | CST Studio Suite 2026 | 否 | 商业软件，需自行安装                    |
-| `cst-studio-suite MCP` 服务端 | 否 | 独立包（MIT），需另行安装并注册到 DSH |
+| `cst-studio-suite MCP` 服务端 | 否 | 独立包（MIT），需另行安装并注册到 DSH。仓库：[woson-L/cst-studio-suite-mcp](https://github.com/woson-L/cst-studio-suite-mcp) |
 
 ### 权限范围
 
@@ -122,5 +126,5 @@ src/baseline/ 的换行若被转为 CRLF，反向还原门禁将因「补丁命�
 
 ## 许可证
 
-本项目采用 **MIT License**，详见 [LICENSE](LICENSE)。
+本项目采用 **MIT License**，详见 [LICENSE](LICENSE)。本项目不分发其它组件，第三方组件与其许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 

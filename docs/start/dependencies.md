@@ -18,6 +18,7 @@
 
 | 项目 | 值 |
 | --- | --- |
+| 仓库 | <https://github.com/woson-L/cst-studio-suite-mcp> |
 | 包名 | `cst-studio-suite-mcp`（`pyproject.toml` 中 `[project].name`） |
 | 版本 | `2.0.0` |
 | 许可证 | **MIT**（`pyproject.toml` 中 `license = { text = "MIT" }`） |
@@ -51,6 +52,7 @@ python check_install.py --fix --workspace "C:\CST_MCP_workspace"
 人工确认——即 2026-10-02 实测到的「覆盖旧工程时需手动点掉删除旧结果的确认框」。
 
 因此做迭代优化时，`cst-studio-suite-mcp` 需为**包含该修复的版本**：修复位于
-`cst_mcp/session.py` 的 `save_project`，验证记录见 MCP 仓库的
+`cst_mcp/session.py` 的 `save_project`，验证记录见 MCP 仓库
+[woson-L/cst-studio-suite-mcp](https://github.com/woson-L/cst-studio-suite-mcp) 的
 `docs/dev/verification.md`（Overwriting a project without a confirmation），
 离线回归为 `tests/test_save_overwrite.py`。升级后需重启 DSH，MCP 服务端才会加载新代码。

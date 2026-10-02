@@ -58,8 +58,8 @@ dsh web
 | 重启后内容一致 | 再次比对 SHA256 | ✅ 仍为 `5BBA26E9…`，逐字节一致 |
 | 重启后处理器生效 | `POST /antenna-optimizer` | ✅ HTTP 405 |
 
-> 重启验证日志存档：[`restart-verify-20260927.log`](../reference/history/restart-verify-20260927.log)，
-> 脚本：[`tools/restart-verify.ps1`](../../tools/restart-verify.ps1)。
+> 重启验证脚本：[`tools/restart-verify.ps1`](../../tools/restart-verify.ps1)。
+> （一次性验证日志含本机 PID 与路径，留在本地开发仓库、不入库，故此处不链接。）
 > 该脚本经 WMI 分离启动（父进程 `WmiPrvSE`），所以宿主 DSH 被杀掉也不会连带
 > 杀死它；验证失败时会从 `_backup_*` 还原 profile 配置并再重启一次。
 > 注意重启会中断正在进行的 agent 会话。

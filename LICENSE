@@ -19,12 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----------------------------------------------------------------------------
-第三方组件说明（本项目不分发下列组件，使用者需自行获取并遵守其许可）：
-
-  CST Studio Suite 2026         商业软件，需有效许可证
-  cst-studio-suite-mcp          MCP 服务端，独立 Python 包（其 pyproject.toml
-                                声明 license = { text = "MIT" }，请以实际取得
-                                的版本为准）
-  DeepSeek Harness (DSH)        运行环境
