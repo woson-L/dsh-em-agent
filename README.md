@@ -2,6 +2,22 @@
 
 DSH 插件，面向 CST 电磁仿真，支持任意频段天线设计。单文件 Web 控制台覆盖硬件设计全流程：任务配置、模型驱动、实时监控、结果交付。
 
+## 0.2 版新增（相对 0.1.0）
+
+> **DSH 桌面版（DSH Desktop）现在可以直接使用本插件。** 桌面版与 Web 端共用同一份
+> `panel.html` 产物与同一套路由，安装方式见
+> [装到 DSH 桌面版](docs/start/store.md#装到-dsh-桌面版020-起)。
+
+| 变更 | 说明 |
+| --- | --- |
+| **桌面版支持** | 桌面版有独立的 profile 与独立版本线（实测 `0.2.1-rc.2`，同期 Web 侧 CLI 为 `0.2.0-rc.2`）；同一份产物、同一个 `/em-agent`，两端表现一致 |
+| **打开即弹的入口** | 应用一打开自动弹出模态窗（5cm 高、宽度自适应、遮罩 + 焦点约束 + 右上角关闭），点「开启 EM 仿真」进入控制台整页；关掉后顶栏留 `EM Agent` 胶囊可再开 |
+| **修复桌面版「DSH 离线」** | 面板原先把「同源」等同于 `http(s)`，在 `dsh-app://` 下整页降级成 `file://` 模式；由补丁 P70 / P71 修正 |
+| **DSH 版本区间放宽** | peer range 改为 `>=0.1.0-0 <0.3.0-0`，DSH 0.1 与 0.2 全线（含预发布）都可用，不再因宿主升级被整包跳过 |
+| **构建与验证** | 删除已退役的 `build/deploy.ps1`，空白页像素检测迁到 `tools/render-check.ps1`（纯 ASCII、零绝对路径）；新增 `test/test-manifest.cjs`（27 条断言，锁住版本区间与路由契约） |
+
+逐条记录见 [变更记录](CHANGELOG.md)。
+
 ## 功能
 
 - 单文件 HTML/CSS/JavaScript，无构建依赖，无外部资源；图标以内联 data URI 提供
@@ -9,6 +25,7 @@ DSH 插件，面向 CST 电磁仿真，支持任意频段天线设计。单文�
 - 内置页面编辑器，支持以 HTML 新增内容区块，并接收模型回传的数据
 - CST 操作经 [`cst-studio-suite MCP`](https://github.com/woson-L/cst-studio-suite-mcp) 驱动 CST Studio Suite 2026
 - 提供 Web 路由，页面由插件包提供，不写入 DSH 安装目录
+- 入口为应用内模态窗（桌面版与 Web 浏览器通用），面板本身仍是一份可独立打开的单文件
 
 ## 视频演示
 
@@ -24,6 +41,10 @@ dsh web
 安装完成后访问 **`http://127.0.0.1:3080/em-agent`**。
 
 插件包通过声明 dsh.bundle.patch，在安装时自动注册为 profile 层，无需手动编辑 profile 配置。
+
+**DSH 桌面版（DSH Desktop）从 `0.2.0` 起同样支持**：它有自己的 profile 与自己的版本线，
+需要用桌面版自带的载体 CLI 单独装一次（npm 装的 `dsh` 会被拒绝），
+见 [装到 DSH 桌面版](docs/start/store.md#装到-dsh-桌面版020-起)。
 
 完整安装流程（包括首次配置、CST 与 MCP 依赖，以及可复制给 AI 的代做提示词）见 **[从 DSH Store 安装](docs/start/store.md)**。
 
@@ -68,11 +89,10 @@ dsh web
 │   ├── baseline/                 ← 原始基线（只读，禁止修改）
 │   └── styles.css                ← 全部样式
 ├── build/
-│   ├── build.ps1                 ← 基线 + 样式 + 补丁 → dist/
-│   └── deploy.ps1                ← 构建 → 部署 → 渲染校验
+│   └── build.ps1                 ← 基线 + 样式 + 补丁 → dist/
 ├── dist/                         ← 构建产物（由 build.ps1 生成；dist/*.html 与 dist/shots/ 不入库）
 ├── test/                         ← 11 个真实浏览器回归套件（另含 1 个布局实测脚本、1 个不依赖浏览器的插件契约测试）
-├── tools/                        ← 截图与运维脚本
+├── tools/                        ← 截图、渲染校验（render-check.ps1）、重启验证等运维脚本
 ├── examples/                     ← 可直接导入的示例区块
 └── plugin/                       ← DSH 插件包
 ```
@@ -83,7 +103,7 @@ dsh web
 
 | 依赖 | 随插件分发 | 说明                            |
 | --- | --- |-------------------------------|
-| DSH（DeepSeek Harness） | 否 | 运行环境。插件把宿主声明为 peer 依赖，**版本必须匹配**，否则 DSH 会在启动时整包跳过插件、页面返回 404。`0.1.1` 支持 DSH 0.1 与 0.2 两线，见[依赖总览 · DSH 版本要求](docs/start/dependencies.md#dsh-版本要求) |
+| DSH（DeepSeek Harness） | 否 | 运行环境。插件把宿主声明为 peer 依赖，**版本必须匹配**，否则 DSH 会在启动时整包跳过插件、页面返回 404。`0.1.2` 起支持 DSH 0.1 与 0.2 全线（含预发布），见[依赖总览 · DSH 版本要求](docs/start/dependencies.md#dsh-版本要求) |
 | CST Studio Suite 2026 | 否 | 商业软件，需自行安装                    |
 | `cst-studio-suite MCP` 服务端 | 否 | 独立包（MIT），需另行安装并注册到 DSH。仓库：[woson-L/cst-studio-suite-mcp](https://github.com/woson-L/cst-studio-suite-mcp) |
 
@@ -103,6 +123,8 @@ dsh web
 
 - 页面需通过 http(s) 同源地址访问；以 `file://` 直接打开 `panel.html` 时，同源功能降级为复制指令模式。
 - 插件声明的宿主版本范围有限：超出范围的 DSH 会在启动时**静默跳过整个插件**（页面 404，不报错）。升级 DSH 后先看 `dsh --profile web --dump-config` 里有没有 `- id: em-agent-panel`，见[依赖总览 · DSH 版本要求](docs/start/dependencies.md#dsh-版本要求)。
+- 桌面版后端的端口**每次启动都不同**，请从界面顶栏的「EM Agent」按钮进入，不要收藏 `127.0.0.1:<port>/em-agent`。
+- 桌面版与 Web 端 **localStorage 不共享**（origin 不同）：首次配置与自定义区块需各填一次，迁移用页面内的导出 / 导入 JSON。
 - 首次配置存于浏览器 `localStorage`，与 origin 绑定；更换端口或 host 后无法读取。该配置不支持导出，迁移前需手动记录字段值。
 - 未安装 `cst-studio-suite MCP` 时，页面仍可打开，配置、指令生成与页面编辑器均可用，但无法执行仿真。
 - 页面编辑器新增的区块默认允许执行脚本；取消勾选后，已注册的定时器与事件监听需刷新页面才能停止。

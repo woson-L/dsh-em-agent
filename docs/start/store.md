@@ -92,7 +92,9 @@ package.json 里有没有 dsh-em-agent：
 
 【边界：这些不要做】
 - 不要把页面复制进 DSH 安装目录 <dsh-web-frontend>/dist/，那条静态部署路径已退役。
-- 不要往 desktop profile 装：它由 DSH 桌面版（Electron）独占，CLI 会直接拒绝。
+- 不要用 npm 装的 dsh 往 desktop profile 装：它会直接拒绝（报 profile "desktop" is
+  managed exclusively by the Electron application）。桌面版要用它自带的载体 CLI，
+  见仓库 docs/start/store.md 的「装到 DSH 桌面版」。
 - 不要改插件自身的 index.js / panel.html；装不上就如实报告。
 - 页面能开但点「启动仿真」报 401，不是插件坏了：先访问一次主界面
   （形如 http://127.0.0.1:3080/?token=…）种下登录 cookie 即可。
@@ -105,7 +107,7 @@ package.json 里有没有 dsh-em-agent：
 
 | 项 | 必需 | 说明 |
 | --- | --- | --- |
-| DSH | ✅ | 提供 `dsh` 命令。`dsh --version` 能出版本号即可。**版本须与插件匹配**（`0.1.1` 支持 DSH 0.1 / 0.2 两线，`0.1.0` 在 DSH 0.2 上会被整包跳过），见[依赖总览 · DSH 版本要求](dependencies.md#dsh-版本要求) |
+| DSH | ✅ | 提供 `dsh` 命令。`dsh --version` 能出版本号即可。**版本须与插件匹配**（`0.1.2` 起支持 DSH 0.1 / 0.2 全线；`0.1.0` 在 DSH 0.2 上会被整包跳过），见[依赖总览 · DSH 版本要求](dependencies.md#dsh-版本要求) |
 | pnpm | ✅ | `dsh plugin` 会把参数转发给 profile 目录下的 pnpm |
 | CST Studio Suite 2026 | ⬜ | **不装也能打开页面**，只是不能真正跑仿真（商业软件，需自行授权） |
 | CST MCP 服务端 | ⬜ | 同上。不装则页面停在「MCP 未连接」，其余配置功能照常可用 |
@@ -169,6 +171,39 @@ ls ~/.dsh/profiles/web/node_modules/dsh-em-agent     # 应能看到 index.js / p
 
 > ⚠️ **两种方式互斥。** 一旦走自动挂载，就**必须**删掉 2.2 里手工加的那一行，
 > 否则同一条路由会被注册两次，`webServer.register` 会因重复的 `(kind, path)` 直接抛错。
+
+---
+
+## 装到 DSH 桌面版（0.2.0 起）
+
+桌面版是**独立的 profile**（`~/.dsh/profiles/desktop`），`node_modules` 与 web 不共享，
+所以要**单独装一次**。两件事必须先知道：
+
+1. **npm 装的 `dsh` 会被直接拒绝**：`error: profile "desktop" is managed exclusively by the
+   Electron application`。要用**桌面版自带的载体 CLI**。
+2. **桌面版后端的端口每次启动都不同**（实测 `6222 / 9385 / 9530 / 13502`），
+   所以不要收藏 `127.0.0.1:<port>/em-agent` 这种 URL。
+
+```powershell
+# 1) 完全退出 DeepSeek Harness（含托盘图标）
+# 2) 用载体 CLI 装（路径按你的安装位置调整）
+& "<安装目录>\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "link:<仓库路径>\plugin"
+# 3) 重新打开桌面版
+```
+
+装好后**不要记 URL**：桌面版一打开就会**自动弹出 EM Agent 弹窗**（每次打开都弹），
+点「开启 EM 仿真」进入控制台整页；关掉后可以从顶栏左侧的 `EM Agent` 胶囊再打开。
+`plugin/client.js` 会自己找到当前端口（宿主把真实 origin 注入 `index.html`，
+客户端再用相对路径 + 标记头探测）。
+
+验收（`<port>` 换成当前桌面版端口）：
+
+```powershell
+curl.exe -s -o NUL -w "%{http_code}`n" "http://127.0.0.1:<port>/em-agent"   # 期望 200
+```
+
+> 两端 **localStorage 不共享**（origin 不同），首次配置与自定义区块要各自填一次；
+> 迁移用页面里的「导出 / 导入 JSON」。
 
 ---
 
@@ -288,7 +323,7 @@ dsh web
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `/em-agent` 返回 404 | patch 行没生效，或 `id` 指向了不存在的条目被静默跳过 | 检查 patch 文件里的 `insert` 形式与缩进；重启一次 `dsh web` 确认 |
-| `/em-agent` 返回 404，但 patch 行与 `id` 都对 | 插件的 `peerDependencies` 不接受当前 DSH 版本，DSH 在 boot 阶段**整包跳过**（`0.1.0` + DSH 0.2 就会这样） | 跑 `dsh --profile web --dump-config`：没有 `- id: em-agent-panel` 且 stderr 有 `skipping profile bundle` 即为此因。升到 `0.1.1`+，见[依赖总览 · DSH 版本要求](dependencies.md#dsh-版本要求) |
+| `/em-agent` 返回 404，但 patch 行与 `id` 都对 | 插件的 `peerDependencies` 不接受当前 DSH 版本，DSH 在 boot 阶段**整包跳过**（`0.1.0` + DSH 0.2 就会这样） | 跑 `dsh --profile web --dump-config`：没有 `- id: em-agent-panel` 且 stderr 有 `skipping profile bundle` 即为此因。升到 `0.1.2`+（`>=0.1.0-0 <0.3.0-0`，0.1 / 0.2 全线），见[依赖总览 · DSH 版本要求](dependencies.md#dsh-版本要求) |
 | 保存了 patch 文件但路由没变 | 热加载只覆盖配置文件，不覆盖插件代码 | 路由相关的 patch 改动会热生效；`index.js` 的改动必须重启 |
 | 页面能开但按钮都是「复制指令」 | 用了 `file://` 直接打开 | 改用 `http://127.0.0.1:<端口>/em-agent` |
 | **页面能开、界面正常，但点「启动仿真」报 401 / 传输失败** | 浏览器还没有 DSH 的登录 cookie（从未访问过主界面，或 cookie 已被清） | 先打开一次 `dsh web` 自动给出的主界面地址（形如 `http://127.0.0.1:3080/?token=…`），cookie 种下后 `/em-agent` 即可正常使用 |

@@ -3448,6 +3448,42 @@ $new = Apply-Patch $new @'
     "固定约束（7.2 节 FC1 / FC2）在本轮同样有效：只允许改天线形状与馈电点位置，不得修改或删除其它 Component。\n" +
 '@ 'P69d 预检补齐轮同样适用覆盖口径'
 
+# P70 ── 同源判定：接受自定义协议
+#   基线把「同源」等同于 http(s)。桌面版渲染层是 dsh-app://，location.protocol
+#   拿到的是 dsh-app:，于是整页掉进「离线（file:// 降级）」，MCP 与事件流一起失效。
+#   改为：http(s) 直接算同源；其余协议下，只要宿主注入过 origin meta 就算同源。
+$new = Apply-Patch $new @'
+function isDSHSameOrigin() { return location.protocol === "http:" || location.protocol === "https:"; }
+'@ @'
+/* 桌面版渲染层是 dsh-app:// 这类自定义协议：location.protocol 既不是 http: 也不是
+   https:，但它与后端同源（由 DSH 的 scheme handler 透传）。宿主会把真实 origin
+   注入页面 <meta name="dsh-em-agent-origin">，据此判定，而不是只看协议。 */
+function dshInjectedOrigin() {
+  const el = document.querySelector('meta[name="dsh-em-agent-origin"]');
+  const v = el && el.getAttribute("content");
+  return v ? String(v).replace(/\/+$/, "") : "";
+}
+function isDSHSameOrigin() {
+  if (location.protocol === "http:" || location.protocol === "https:") return true;
+  return dshInjectedOrigin() !== "";
+}
+'@ 'P70 同源判定接受自定义协议'
+
+# P71 ── 事件流 WebSocket 地址：自定义协议下 location.host 不是后端地址
+#   dsh-app:// 的 host 是 scheme 的 host，拼出来是 ws://dsh-app/api/remote.mux，
+#   连不上。有注入的 origin 时用绝对地址，否则保持原来的相对写法。
+$new = Apply-Patch $new @'
+  const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(wsProtocol + "//" + location.host + REMOTE_MUX_PATH);
+'@ @'
+  /* 自定义协议下 location.host 指向 scheme 的 host，不是后端地址；
+     有注入的 origin 就用它拼绝对地址，否则沿用相对写法。 */
+  const dshOrigin = dshInjectedOrigin();
+  const wsProtocol = dshOrigin.indexOf("https:") === 0 || location.protocol === "https:" ? "wss:" : "ws:";
+  const wsHost = dshOrigin ? dshOrigin.replace(/^https?:\/\//, "") : location.host;
+  const ws = new WebSocket(wsProtocol + "//" + wsHost + REMOTE_MUX_PATH);
+'@ 'P71 事件流地址用注入 origin'
+
 Write-Output "已应用 $($script:patches.Count) 处补丁"
 
 # --- 5. 反向还原校验 ---

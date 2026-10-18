@@ -74,8 +74,8 @@ dsh web
 ### 方式 B · 直接部署静态页面（已退役）
 
 > ⚠️ **2026-10-01 起退役。** 当天已把部署在静态目录里的 5 个副本全部删除，
-> 页面此后只以插件路由（方式 A）分发。`build/deploy.ps1` 仍然可用，但只面向
-> 「插件装不上、又必须看一眼界面」的应急场景，不在支持范围内。
+> 页面此后只以插件路由（方式 A）分发。**2026-10-18 起连 `build/deploy.ps1` 本身
+> 也已删除** —— 仓库里不再有任何往 DSH 安装目录写文件的路径。
 
 退役原因：
 
@@ -86,16 +86,10 @@ dsh web
 | 升级即消失 | 写在 `<dsh-web-frontend>/dist/`（DSH 安装目录），DSH 升级或重装会被整体清空 |
 | 验证不覆盖 | [`tools/restart-verify.ps1`](../../tools/restart-verify.ps1) 只断言插件路由与别名；静态地址**返回 404 才是预期** |
 
-应急用法（仅在确有必要时）：
-
-```powershell
-# Windows PowerShell 5.1（多数机器只有这个）
-powershell -NoProfile -ExecutionPolicy Bypass -File build\deploy.ps1
-dsh web
-# 默认部署名是 dist 的文件名，所以地址是：
-#   http://127.0.0.1:3080/antenna-optimizer-panel.html
-# 想换成别的名字： -As "<文件名>"
-```
+**插件行挂不上、又必须先看一眼界面时：** 用浏览器直接打开 `plugin/panel.html`
+（`file://`）。界面照常渲染，但依赖同源的能力（启动仿真、目录选择器、实时订阅、
+CST MCP 调用）全部降级为「复制指令」模式 —— 这是**看清界面**的应急办法，
+不是可用入口。不要再往 DSH 安装目录里拷文件。
 
 ### 启动命令速查
 

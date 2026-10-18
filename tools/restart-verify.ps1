@@ -37,7 +37,7 @@ param(
     [string] $LegacyUrl             = 'http://127.0.0.1:3080/antenna-optimizer',
     [string] $LegacyStaticUrl       = 'http://127.0.0.1:3080/antenna-optimizer-config-panel.html',
     [string] $RootUrl               = 'http://127.0.0.1:3080/',
-    [int]    $ExpectBytes           = 228087
+    [int]    $ExpectBytes           = 229026
 )
 
 # ---------------------------------------------------------------------------

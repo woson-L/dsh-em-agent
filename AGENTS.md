@@ -111,8 +111,9 @@
 ## 六、三条不可违反的技术约束
 
 1. **`src/baseline/` 只读。** 任何改动都通过 `build/build.ps1` 的补丁或 `src/styles.css` 表达。
-2. **含中文的 `.ps1` 必须保留 UTF-8 BOM**（`build/build.ps1`、`build/deploy.ps1`）。
-   缺少 BOM 时它们在 Windows PowerShell 5.1 下无法解析（分别 711 / 9 处语法错误）。
+2. **含中文的 `.ps1` 必须保留 UTF-8 BOM**（目前只有 `build/build.ps1`）。
+   缺少 BOM 时它在 Windows PowerShell 5.1 下无法解析（711 处语法错误）。
+   `tools/` 下的脚本刻意只用 ASCII 写成，因此不受此约束 —— 需要跨机器稳定时优先这么写。
    部分编辑器与自动改写工具会静默移除 BOM，改完脚本后需确认一次。
    同样属于字节级要求：根目录 `.gitattributes` 以 `* -text` 关闭换行转换 ——
    `src/baseline/` 一旦在检出时变成 CRLF，反向还原门禁会以「补丁命中 0 次」失败。

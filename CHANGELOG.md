@@ -55,6 +55,158 @@
 
 ---
 
+## [0.2.0] — 2026-10-18
+
+### 新增：DSH 桌面版支持（与 Web 端同一份产物）
+
+桌面版是**独立的 profile**（`~/.dsh/profiles/desktop`），也是**独立的更新通道**
+（本次为 `0.2.1-rc.2`，同期 Web 侧 CLI 为 `0.2.0-rc.2`）。但它和 Web 用的是**同一套
+`dsh-web-app` 组合**，所以宿主的 `webServer` 与 `/em-agent` 路由在两端行为一致：
+
+| 断言 | Web（3080） | 桌面版（每次启动端口不同） |
+| --- | --- | --- |
+| `GET /em-agent` | 200 / 229026 | 200 / 229026 |
+| `POST /em-agent` | 405 + `Allow: GET, HEAD` | 405 + `Allow: GET, HEAD` |
+| 与 `plugin/panel.html` | 逐字节一致 | 逐字节一致 |
+
+安装必须走**桌面版自带的载体 CLI**——npm 装的 `dsh` 会硬拒 desktop profile
+（`profile "desktop" is managed exclusively by the Electron application`）：
+
+```
+<安装目录>\resources\runtime\cli\bin\dsh.cmd plugin --profile desktop add "link:<仓库>/plugin"
+```
+
+### 新增：打开应用即自动弹出的模态入口
+
+`plugin/client.js` 是本插件的**客户端半边**，由我们自己的 `plugin/package.json` 的
+`dsh.client` 段声明（不是官方文件）。它注册三处：
+
+| 位置 | Slot | 作用 |
+| --- | --- | --- |
+| 模态弹窗 | `shell.overlay`（id `em-agent-modal`） | **每次打开应用自动弹出**；5cm 高、宽度自适应、遮罩 + 焦点约束 + 右上角关闭 |
+| 顶栏胶囊 | `conversation.header.leading` | 关掉弹窗后再打开；28px 高、发丝边框 |
+| 整页 | `main`（keyed = `em-agent`） | `<iframe>` 承载控制台，是「开启 EM 仿真」的落点；右上角「返回对话」 |
+
+弹窗内容是 `EM Agent` / `硬件设计控制台` / 一行前置条件，加两个动作：
+`开启 EM 仿真`（实心，调 `ctx.layout.selectPanel('em-agent')`）与 `稍后再说`（仅关闭）。
+高度用 CSS 物理单位写成 `5cm`（1cm = 96/2.54 px，实测 188.97px）；宽度
+`clamp(320px, 100vw - 48px, 560px)`；Tab 在弹窗内循环、Esc 关闭、点遮罩关闭、
+关闭后焦点回到触发处。
+
+**为什么弹窗挂 `shell.overlay` 而不是顶栏**：那是「整帧浮层，盖住所有列、在滚动容器
+之外」的 seat；塞进顶栏会被列的层叠与滚动裁掉，换个面板还会消失。
+
+**为什么顶栏入口不用 `shell.leading`**：那是「整窗左上角」的 seat，但官方
+`dsh-client-ui-layout` 只在 `darwin && sidebarCollapsed` 时才把它挂到 DOM 上
+（`leadingMounted = darwin && sidebarCollapsed`），Windows 上永远不渲染。
+
+**配色不硬编码**：一律取宿主主题令牌（`--dsw-alias-bg-overlay`、`--dsw-alias-border-l1`、
+`--dsw-alias-label-primary`、`--dsw-alias-label-secondary`），明暗两套随宿主切换；
+样式只注入本插件自己的 `dsh-em-agent-*` 类名，卸载时一并移除。
+
+**端口不写死**：桌面版后端端口每次启动都不同（实测 `6222 → 9385 → 9530 → 13502`）。
+宿主用 `ctx.webServer.port` / `.host` 算出真实 origin，经 `tapIndex` 注入
+`<meta name="dsh-em-agent-origin">`；客户端优先用相对路径 `/em-agent`，并靠 `HEAD`
+响应里的 `x-dsh-em-agent: panel` 标记判断相对路径是否真的命中面板，未命中才退到绝对 origin。
+
+> **为什么是 iframe 而不是重写前端**：面板是 228 KB 单文件产物，靠「同源」拿 cookie、
+> localStorage 与 `/api/*`；重写等于再造一个前端，还会破坏「单文件、零依赖」的构建模型。
+> iframe 让产物保持一份、两端共用。
+
+### 修复：桌面版里「DSH 离线（file:// 降级）」
+
+桌面版打开控制台时，顶栏显示 `DSH: 离线（file:// 降级）`、`CST MCP: 需同源地址`，
+依赖同源的按钮全部退化成「复制指令」，而同一份页面在 Web 端完全正常。原因是面板里
+两处**把「同源」等同于 http(s)**，而桌面版渲染层是 `dsh-app://` 自定义协议：
+
+| 基线里的写法 | 在 `dsh-app://` 下的结果 |
+| --- | --- |
+| `isDSHSameOrigin()` 只认 `http:` / `https:` | 整页判定为离线，MCP 与事件流一起失效 |
+| 事件流地址用 `ws://` + `location.host` | host 是 scheme 的 host，连不到后端 |
+
+修复（两处都写进 `build/build.ps1` 的补丁，基线仍然只读）：
+
+- **P70**：`isDSHSameOrigin()` 改为「http(s) 直接算同源；其余协议下，只要宿主注入过
+  `<meta name="dsh-em-agent-origin">` 就算同源」
+- **P71**：事件流 WebSocket 优先用注入的 origin 拼绝对地址，没有才回落到相对写法
+- 宿主侧把真实 origin 也注入**面板 HTML 本身**（不只有 `index.html`），面板因此
+  才知道后端端口；注入按「整个 meta 标签」做幂等判断
+
+> 顺带修掉一个真 bug：`injectOriginMeta` 原先用「页面里有没有这个字符串」判幂等，
+> 而 P70 之后面板脚本自己就含该字面量，注入被跳过、桌面版继续掉回降级 —— 现在改为
+> 匹配 `<meta ...>` 标签本身。`test/test-manifest.cjs` 增加「注入 meta 后其余字节
+> 与 `panel.html` 逐字节一致」的断言，防止路由私自改动产物。
+
+### 已知限制：两端的存储不共享
+
+两端 **origin 不同**（Web 是 `127.0.0.1:3080`，桌面版是它自己那个端口），所以
+`page-setup-v1`（首次配置）与 `page-blocks-v1`（自定义区块）**各存一份**，需要各填一次；
+迁移用页面自带的「导出 / 导入 JSON」。
+
+### 测试
+
+`test/test-manifest.cjs` 24 → **27 条**：新增 `dsh.client` 段与 `./client` 导出、客户端工厂
+id 必须等于包名、`x-dsh-em-agent` 标记头、以及 `tapIndex` 注入 meta
+（端口取自 `webServer`、且重复注入幂等）。
+
+---
+
+## [0.1.2] — 2026-10-18
+
+### 变更：peer range 放宽到 DSH 0.1 与 0.2 全线
+
+`0.1.1` 的 `^0.1.1-rc.2 || ^0.2.0-rc.1` 能装 0.2 线，却把 `0.1.0`、`0.1.1-rc.0`
+这些更老的宿主挡在外面 —— 用老版本 DSH 的用户同样只会看到 404。改为显式区间：
+
+```json
+"@deepseek-ai/dsh-host-webserver": ">=0.1.0-0 <0.3.0-0"
+```
+
+- **下界带 `-0`**：`>=0.1.0` 会把 `0.1.0-rc.x` 排除在外，加 `-0` 才收得下预发布
+- **上界带 `-0`**：`<0.3.0` 会误收 `0.3.0-rc.1`，`<0.3.0-0` 才是干净的边界
+- **上界故意保留**：完全去掉 peer 门虽再也不会被跳过，但 0.3 一旦改了
+  `webServer.register`，插件会被装上去、再在启动阶段抛错 —— 那是**起不来**，
+  比静默的 404 更糟
+
+实测矩阵（已固化进 `test/test-manifest.cjs`）：接受 `0.1.0`、`0.1.0-rc.1`、
+`0.1.1-rc.0`、`0.1.1-rc.2`、`0.1.5`、`0.2.0-rc.1`、`0.2.0-rc.2`、`0.2.0`、
+`0.2.1-rc.2`、`0.2.9`；拒绝 `0.0.9`、`0.3.0-0`、`0.3.0-rc.1`、`0.3.0`、`0.4.0`、`1.0.0`。
+
+> 桌面版与 CLI 是两条独立的更新通道（当时分别是 `0.2.1-rc.2` 与 `0.2.0-rc.2`），
+> 所以「支持一个区间」不是写得宽松，而是唯一能同时覆盖两者的写法。
+
+### 变更：删除 `build/deploy.ps1`，像素检测迁到 `tools/render-check.ps1`
+
+`deploy.ps1` 走的是**已退役**的静态部署路径（把产物复制进 `<dsh-web-frontend>/dist/`，
+DSH 升级即整体消失），而它同时是「空白页像素检测」这道门的唯一执行者。删除时把这道门
+原样迁出：
+
+| 项 | 旧（`deploy.ps1`） | 新（`render-check.ps1`） |
+| --- | --- | --- |
+| 检测目标 | 静态目录里复制出来的副本 | **插件路由 `/em-agent`**，与真实交付路径一致 |
+| 何时执行 | 构建之后顺带跑 | 独立脚本，按需跑（需要 `dsh web` 在服务） |
+| 浏览器位置 | 写死默认值，可用 `-Chrome` 覆盖 | `-Chrome` → `CHROME_PATH` → 由环境变量推出的安装根 → `PATH`，**不含任何绝对路径** |
+| 字符集 | 含中文，依赖 BOM | **纯 ASCII**，永不踩 BOM 这个坑 |
+| 失败形态 | 抛异常 | `0` 通过 / `1` 判定空白 / `2` 跳过（无浏览器或图形 API）/ `3` 路由不可达 |
+
+判定口径未改：截图后按「最大梯度 + 边缘像素占比」判空白。已实测真实页面
+`maxGrad≈667`、`edge≈3.2%` → PASS；空白 fixture `maxGrad=0` → 退出码 `1`；
+不可达 URL → 退出码 `3`。**门禁仍然能真的失败**，不是摆设。
+
+仓库里因此**不再有任何往 DSH 安装目录写文件的路径**。
+
+### 变更：`test-manifest.cjs` 增加版本矩阵（21 → 24 条断言）
+
+矩阵不依赖本机是否装了 DSH，只要拿得到 `semver` 就运行；并保留一条负向对照，证明旧的
+`^0.1.1-rc.2` 会**同时**拒掉 `0.1.0` 与 `0.2.x`，避免 range 写宽之后断言空转。
+
+### 修复：`tools/capture-screenshots.cjs` 支持 `CHROME_PATH`
+
+原来只有一个写死的 Chrome 路径，装在非默认位置的机器上会直接失败。现在与 `test/`
+下的套件同口径：`CHROME_PATH` 优先，默认值仅作兜底。
+
+---
+
 ## [0.1.1] — 2026-10-18
 
 ### 修复：DSH 升到 0.2 线后 `/em-agent` 返回 404

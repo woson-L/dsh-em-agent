@@ -13,13 +13,14 @@
 | --- | --- | --- |
 | `/em-agent` 返回 404 | 插件行没生效 | 检查 `cordis.patch.yml` 里的 `insert` 形式与缩进，重启一次 `dsh web` 确认 |
 | 同上，且 patch 文件里明明写了 | 该行带了 `id` 指向不存在的条目 | DSH 对这种情况**只告警然后静默跳过**。改成无 `id` 的 `insert` 形式 |
-| **`/em-agent` 404，patch 行、`id`、profile 全都没动过，升级 DSH 之后才出现** | 插件的 `peerDependencies` 不接受当前 DSH 版本。DSH 在 boot 阶段判定不兼容后**整包跳过**（`skipping profile bundle "dsh-em-agent"`），loader 树里没有 `em-agent-panel` | 看 `dsh --profile web --dump-config`：没有 `- id: em-agent-panel` 且 stderr 有 `skipping profile bundle` 即为此因；插件管理面板里会显示 `error.code = incompatible-version`。修法：升到 `0.1.1`+（range 已含 0.2 线）。机制见 [依赖总览 · DSH 版本要求](../start/dependencies.md#dsh-版本要求) |
+| **`/em-agent` 404，patch 行、`id`、profile 全都没动过，升级 DSH 之后才出现** | 插件的 `peerDependencies` 不接受当前 DSH 版本。DSH 在 boot 阶段判定不兼容后**整包跳过**（`skipping profile bundle "dsh-em-agent"`），loader 树里没有 `em-agent-panel` | 看 `dsh --profile web --dump-config`：没有 `- id: em-agent-panel` 且 stderr 有 `skipping profile bundle` 即为此因；插件管理面板里会显示 `error.code = incompatible-version`。修法：升到 `0.1.2`+（range 为 `>=0.1.0-0 <0.3.0-0`，覆盖 0.1 / 0.2 全线）。机制见 [依赖总览 · DSH 版本要求](../start/dependencies.md#dsh-版本要求) |
 | 保存了 patch 文件但路由没变 | 热加载只覆盖配置文件，不覆盖插件代码 | 路由行的增删会热生效；`index.js` 的改动**必须重启** |
 | 页面能开，但按钮都是「复制指令」 | 用了 `file://` 直接打开 | 改用 `http://127.0.0.1:<端口>/em-agent` |
 | **页面能开、界面正常，但点「启动仿真」报 401 / 传输失败** | 浏览器里没有 DSH 的登录 cookie。插件路由本身不鉴权（所以页面照常 200），但它调用的 `/api/*` 会校验 cookie | 先访问一次 `dsh web` 自动给出的主界面地址（形如 `http://127.0.0.1:3080/?token=…`，服务端 303 下发 `Path=/` 的 cookie），之后 `/em-agent` 即可正常使用 |
 | **点「发送环境探测指令」报 `DSH 传输失败（HTTP 404）`** | RPC 协议不匹配：旧构建发点号式端点 `/api/session.create`，网关的 `claimsEndpoint` 要求端点按 `/` 切正好 2 段，于是**在任何业务逻辑之前**就回 404 | 2026-10-01 已修（补丁 P57：两段式端点 + `{ args: { request: … } }` 信封 + `session.prompt` 补 `requestId`）。回归覆盖见 `test/test-rpc.cjs`，契约见 [与 DSH 的 RPC 契约](dsh-rpc.md) |
 | 右栏一直空着、看不到模型输出 | 会话事件流没连上（`/api/remote.mux` 上的 `session/follow`） | 2026-10-01 起已接通。若仍为空：刷新页面触发重连，并看左下角操作日志（`#logList`）里有没有「会话事件流出错：…」 |
 | 点「浏览目录…」只弹一句「未开放目录选择器」 | `host.pickDirectory` 在当前 DSH 版本没有主机端点 | 手动填路径。这不是回归，旧写法同样只会拿到 404 |
+| **桌面版里顶栏显示 `DSH: 离线（file:// 降级）`、`CST MCP: 需同源地址`，同一页面在 Web 端正常** | 面板把「同源」等同于 http(s)；桌面版渲染层是 `dsh-app://` 自定义协议，`location.protocol` 不是 http(s)，于是整页降级（`0.2.0` 之前的行为）。事件流地址也按 `ws://` + `location.host` 拼，而那个 host 是 scheme 的 host | `0.2.0` 起已修：补丁 **P70**（同源判定接受自定义协议）+ **P71**（事件流用注入的 origin）+ 宿主把真实 origin 注入面板 HTML。升级到 `0.2.0` 并重启桌面版即可恢复；判定依据见 [变更记录](../../CHANGELOG.md) 的 0.2.0 节 |
 
 ## 任务跑起来之后
 

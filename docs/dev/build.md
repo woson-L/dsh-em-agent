@@ -10,7 +10,7 @@ src/baseline/antenna-optimizer-config-panel.original.html   （只读，永不�
         +
 src/styles.css                                              （样式，直接编辑）
         +
-build/build.ps1 里的 131 处补丁                              （HTML/JS 行为改动）
+build/build.ps1 里的 133 处补丁                              （HTML/JS 行为改动）
         ↓
 dist/antenna-optimizer-panel.html                           （单文件产物）
         ↓  自动同步
@@ -38,17 +38,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build\build.ps1
 # 若装了 PowerShell 7
 pwsh -File build/build.ps1
 
-# 构建 + 部署到 DSH 静态目录 + 渲染校验（应急路径，见下）
-powershell -NoProfile -ExecutionPolicy Bypass -File build\deploy.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File build\deploy.ps1 -Target "<dist目录>" -As "<部署文件名>"
+# 构建之后：渲染校验（需要 dsh web 在跑；不属于构建的一部分，见下）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\render-check.ps1
 ```
 
-> **日常只需要 `build.ps1`。** `deploy.ps1` 会额外把产物复制进 DSH 的安装目录
-> （`<dsh-web-frontend>/dist/`）——那是**已退役**的「方式 B 静态部署」，2026-10-01 起
-> 只保留给「插件装不上、又必须看一眼界面」的应急场景，原因与风险见
-> [`../start/repo.md`](../start/repo.md) 的「方式 B · 已退役」。
-> 它自带渲染校验（截图 + 空白页检测），所以每次运行都会在静态目录留下页面；
-> 用完记得清掉，`tools/restart-verify.ps1` 会把该地址返回 404 视为预期状态。
+> **`build.ps1` 只生成产物，不碰 DSH 的安装目录。** 曾经有一个 `build/deploy.ps1`
+> 把产物复制进 `<dsh-web-frontend>/dist/` —— 那是**已退役**的「方式 B 静态部署」。
+> 2026-10-18 该脚本已删除，原因与风险见 [`../start/repo.md`](../start/repo.md) 的
+> 「方式 B · 已退役」。它身上那道「空白页像素检测」已迁到
+> [`tools/render-check.ps1`](../../tools/render-check.ps1)，直接对着插件路由跑，
+> 不再往 DSH 安装目录写任何文件。
 
 > **不要用 `pwsh` 作为唯一写法。** 本机（以及多数只装了 Windows 自带 PowerShell 的机器）
 > 并没有 `pwsh`，写进文档会让人照抄失败。两条都给出，按实际环境选。
@@ -57,13 +56,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build\deploy.ps1 -Target "<d
 
 ---
 
-## 七道硬门禁（外加一道部署侧渲染校验）
+## 七道硬门禁（外加一道按需执行的渲染校验）
 
 任何一条不通过即中止构建，不产出半成品。
 
 | 门禁 | 作用 |
 | --- | --- |
-| 补丁精确命中 | 每处补丁必须在基线中恰好匹配 1 次（当前 131 处） |
+| 补丁精确命中 | 每处补丁必须在基线中恰好匹配 1 次（当前 133 处） |
 | **反向还原校验** | 产物里的补丁逐一还原后，必须与基线脚本 **SHA256 逐字节相同** —— 以此证明产物 = 基线 + 恰好这些改动 |
 | 结构断言 | `style`/`head`/`body`/`script` 标签配对（曾因漏掉 `</style>` 导致整页空白） |
 | 钩子校验 | 原有 78 个 id：**75 个保留 + 3 个显式退役**，新增量与补丁推导值一致 |
@@ -72,7 +71,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build\deploy.ps1 -Target "<d
 | **内联脚本语法** | 产物里的内联 `<script>` 过一遍 `node --check`。语法错会让**整页脚本不执行**（页面成空壳），而其余门禁一个都发现不了 —— 2026-10-01 实际踩到过；找不到 `node` 时跳过并明确标注「未校验」 |
 | 空白页像素检测 | 渲染截图的最大梯度与边缘占比，空白页直接失败 |
 
-（最后一项由 `build/deploy.ps1` 执行。）
+（最后一项**不在构建里**执行 —— 它由 [`tools/render-check.ps1`](../../tools/render-check.ps1)
+按需跑，因为这一步需要 `dsh web` 正在服务。构建侧仍然是七道。）
 
 ### 关于「显式退役」
 
@@ -99,25 +99,24 @@ $script:retiredIds = @('spEfficiencySuppress', 'spEffTarget', 'stStub')
 
 ## ⚠️ BOM 陷阱（务必记住）
 
-**所有含中文的 `.ps1` 都必须保留 UTF-8 BOM。** 目前是 `build/build.ps1` 与
-`build/deploy.ps1`（后者一度被漏掉，见下）。
+**所有含中文的 `.ps1` 都必须保留 UTF-8 BOM。** 目前只有 `build/build.ps1` 一个
+（`deploy.ps1` 已删除；`tools/` 下的脚本刻意写成纯 ASCII，见本节末尾）。
 
 这些脚本含大量中文字符串与补丁锚点。无 BOM 时 Windows PowerShell 5.1 会按 GBK 解码，
 中文的尾字节会与紧随其后的引号配对、把引号「吞掉」，导致字符串失衡：
 
 ```
 build/build.ps1    无 BOM：711 处语法错误，脚本完全无法解析
-build/deploy.ps1   无 BOM：  9 处语法错误（含 "The string is missing the terminator"）
-两者有 BOM：均为 0 处
+有 BOM：0 处
 ```
 
 `pwsh` 7 按 UTF-8 读取，没有这个问题 —— 但**多数机器没装 `pwsh`**，
 所以 BOM 是本仓库的硬要求，不是可选项。
 
-> **`deploy.ps1` 更容易中招**：它的中文出现在**代码里的字符串字面量**中
-> （例如状态输出里的 `'是' / '否'`），而不只是注释。注释被 mangle 最多是显示乱码，
-> 字符串字面量被 mangle 会直接打断语句、让整个脚本无法解析。
-> `tools/restart-verify.ps1` 是刻意写成纯 ASCII 的，所以它没有这个约束。
+> **中文落在字符串字面量里最容易中招**：注释被 mangle 最多是显示乱码，而字面量
+> （例如状态输出里的 `'是' / '否'`）被 mangle 会直接打断语句、让整个脚本无法解析。
+> `tools/restart-verify.ps1` 与 [`tools/render-check.ps1`](../../tools/render-check.ps1)
+> 都是**刻意只用 ASCII** 写成的，所以它们没有这个约束 —— 需要跨机器稳定时优先这么写。
 
 **部分编辑器（以及一些自动改写工具）保存时会静默去掉 BOM。**
 构建/部署失败并报 `Unexpected token` / `ExpectedValueExpression` /

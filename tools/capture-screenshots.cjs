@@ -5,7 +5,9 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+/* CHROME_PATH 优先（与 test/ 下的套件同口径）；默认值只作兜底，
+   装在非默认位置的机器上不会因此直接失败。 */
+const CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const URL = process.argv[2] || 'http://127.0.0.1:3080/em-agent';
 const OUT = path.join(__dirname, '..', 'dist', 'shots');
 const PORT = 9351;

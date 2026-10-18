@@ -1845,7 +1845,18 @@ function pad2(n) { return String(n).padStart(2, "0"); }
 function todayStr() { const d = new Date(); return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()); }
 function nowStamp() { return new Date().toLocaleTimeString("zh-CN", { hour12: false }); }
 function joinPath(dir, file) { const d = String(dir).replace(/[\\/]+$/, ""); return d ? d + "\\" + file : file; }
-function isDSHSameOrigin() { return location.protocol === "http:" || location.protocol === "https:"; }
+/* 桌面版渲染层是 dsh-app:// 这类自定义协议：location.protocol 既不是 http: 也不是
+   https:，但它与后端同源（由 DSH 的 scheme handler 透传）。宿主会把真实 origin
+   注入页面 <meta name="dsh-em-agent-origin">，据此判定，而不是只看协议。 */
+function dshInjectedOrigin() {
+  const el = document.querySelector('meta[name="dsh-em-agent-origin"]');
+  const v = el && el.getAttribute("content");
+  return v ? String(v).replace(/\/+$/, "") : "";
+}
+function isDSHSameOrigin() {
+  if (location.protocol === "http:" || location.protocol === "https:") return true;
+  return dshInjectedOrigin() !== "";
+}
 function makeRpcId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return "rpc-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
@@ -1937,8 +1948,12 @@ function connectChatSocket() {
   if (chatSocket !== null || chatSession === null || !isDSHSameOrigin()) return;
   const sessionId = chatSession;
   const streamId = "follow-" + makeRpcId();
-  const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(wsProtocol + "//" + location.host + REMOTE_MUX_PATH);
+  /* 自定义协议下 location.host 指向 scheme 的 host，不是后端地址；
+     有注入的 origin 就用它拼绝对地址，否则沿用相对写法。 */
+  const dshOrigin = dshInjectedOrigin();
+  const wsProtocol = dshOrigin.indexOf("https:") === 0 || location.protocol === "https:" ? "wss:" : "ws:";
+  const wsHost = dshOrigin ? dshOrigin.replace(/^https?:\/\//, "") : location.host;
+  const ws = new WebSocket(wsProtocol + "//" + wsHost + REMOTE_MUX_PATH);
   chatSocket = ws;
   chatStreamId = streamId;
   ws.onopen = () => {

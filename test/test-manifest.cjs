@@ -69,10 +69,27 @@ check('声明了 bundle patch', () => {
 });
 check('files 覆盖运行期必需文件', () => {
   const files = Array.isArray(manifest.files) ? manifest.files : [];
-  for (const f of ['index.js', 'panel.html', 'cordis.patch.yml']) {
+  for (const f of ['index.js', 'client.js', 'panel.html', 'cordis.patch.yml']) {
     assert(files.includes(f), `files 里缺少 ${f}`);
   }
   return files.join(',');
+});
+check('声明了客户端半边（dsh.client + ./client 导出）', () => {
+  const client = manifest.dsh && manifest.dsh.client;
+  assert(client && typeof client === 'object', 'dsh.client 缺失 —— 前端入口不会加载');
+  assert(client.platform === 'web', `platform 实际是 ${client.platform}`);
+  assert(Array.isArray(client.inject) && client.inject.length > 0, 'dsh.client.inject 为空');
+  for (const pkg of client.inject) {
+    assert(/^@deepseek-ai\/dsh-/.test(pkg), `inject 里混入了非 dsh 包: ${pkg}`);
+  }
+  const exported = manifest.exports && manifest.exports['./client'];
+  assert(exported === './client.js', `exports["./client"] 实际是 ${exported}`);
+  const p = path.join(PLUGIN_DIR, 'client.js');
+  assert(fs.existsSync(p), 'client.js 不存在');
+  const src = fs.readFileSync(p, 'utf8');
+  assert(src.includes(`id: '${manifest.name}'`), 'client.js 里的工厂 id 必须等于包名');
+  assert(src.includes('__ModuleLoader__'), 'client.js 没有走 window.__ModuleLoader__.load 注册');
+  return `${client.inject.length} 个 inject · ${exported}`;
 });
 check('插件已发布 npm 元数据（repository / license）', () => {
   assert(manifest.repository && manifest.repository.url, '缺少 repository.url');
@@ -113,36 +130,78 @@ if (dshRoot) {
   } catch (e) { runtime = null; }
 }
 
-/* 本机没装 DSH：整组记 SKIP（与 test-rpc.cjs 对 typert 清单的处理一致） */
-if (!runtime) {
-  results['peer range 与本机 DSH 运行时兼容'] = 'SKIP（未探测到本机 DSH 安装，可用 DSH_PKG_ROOT 指定）';
+/* semver：先用本机已有的，其次用 DSH 自带的那份。两者都拿不到就整组 SKIP ——
+   本仓库不引入任何依赖，所以这里绝不 npm install。 */
+function findSemver() {
+  try {
+    const s = require('semver');
+    if (typeof s.satisfies === 'function') return s;
+  } catch (e) { /* 本机没有 semver，继续找 DSH 自带的那份 */ }
+  if (dshRoot) {
+    try {
+      const s = require(path.join(dshRoot, 'node_modules', 'semver'));
+      if (typeof s.satisfies === 'function') return s;
+    } catch (e) { /* 同上 */ }
+  }
+  return null;
+}
+const semver = findSemver();
+
+results['探测到的 DSH 运行时'] = runtime
+  ? `dsh@${runtime.dsh} / ${PEER}@${runtime.webserver}`
+  : '未探测到本机 DSH 安装（可用 DSH_PKG_ROOT 指定）';
+
+const PEER_RANGE = manifest.peerDependencies && manifest.peerDependencies[PEER];
+
+if (!semver) {
+  results['peer range 版本矩阵'] = 'SKIP（找不到 semver：本机没装，DSH 也没装）';
+  results['peer range 与本机 DSH 运行时兼容'] = 'SKIP（同上）';
 } else {
-  results['探测到的 DSH 运行时'] = `dsh@${runtime.dsh} / ${PEER}@${runtime.webserver}`;
+  check('声明了 peerDependencies', () => {
+    assert(typeof PEER_RANGE === 'string' && PEER_RANGE.trim() !== '', `peerDependencies["${PEER}"] 缺失`);
+    return PEER_RANGE;
+  });
 
-  /* semver 从 DSH 自带的依赖里取，避免给本仓库引入任何依赖 */
-  let semver = null;
-  try { semver = require(path.join(runtime.root, 'node_modules', 'semver')); } catch (e) { semver = null; }
+  /* 版本矩阵 = 「老版本也能用、新版本也别被误杀」的可执行契约。
+     上界刻意挡在 0.3.0-0 之前：比静默 404 更糟的是"装上去再把 DSH 启动搞挂"，
+     所以未来破坏性变更应当被这一步拒掉，而不是放进来赌 API 没变。 */
+  const HOST_ACCEPT = [
+    '0.1.0', '0.1.0-rc.1', '0.1.1-rc.0', '0.1.1-rc.2', '0.1.5',
+    '0.2.0-rc.1', '0.2.0-rc.2', '0.2.0', '0.2.1-rc.2', '0.2.9',
+  ];
+  const HOST_REJECT = ['0.0.9', '0.3.0-0', '0.3.0-rc.1', '0.3.0', '0.4.0', '1.0.0'];
 
-  if (!semver || typeof semver.satisfies !== 'function') {
-    results['peer range 与本机 DSH 运行时兼容'] = 'SKIP（DSH 自带的 semver 不可用）';
+  check('peer range 接受 0.1 与 0.2 全线（含预发布）', () => {
+    const bad = HOST_ACCEPT.filter((v) => !semver.satisfies(v, PEER_RANGE, { includePrerelease: true }));
+    assert(bad.length === 0, `这些被拒绝: ${bad.join(', ')}（range = ${PEER_RANGE}）`);
+    return `${HOST_ACCEPT.length} 个版本全部接受`;
+  });
+
+  check('peer range 拒绝 0.3 及以后', () => {
+    const bad = HOST_REJECT.filter((v) => semver.satisfies(v, PEER_RANGE, { includePrerelease: true }));
+    assert(bad.length === 0, `这些被误接受: ${bad.join(', ')}（range = ${PEER_RANGE}）`);
+    return `${HOST_REJECT.length} 个版本全部拒绝`;
+  });
+
+  /* 负向对照：证明上面两条不是空转 —— 旧写法必须同时踩中「拒老版本」与「被 0.2 拒」。 */
+  check('负向对照：旧写法 ^0.1.1-rc.2 会拒 0.1.0 与 0.2.x', () => {
+    const legacy = '^0.1.1-rc.2';
+    const noOld = !semver.satisfies('0.1.0', legacy, { includePrerelease: true });
+    const noNew = !semver.satisfies('0.2.0-rc.2', legacy, { includePrerelease: true });
+    assert(noOld && noNew, '旧写法本应同时拒掉 0.1.0 与 0.2.0-rc.2，否则本组失去对照意义');
+    return `${legacy} ⊉ {0.1.0, 0.2.0-rc.2}`;
+  });
+
+  if (!runtime) {
+    results['peer range 与本机 DSH 运行时兼容'] = 'SKIP（未探测到本机 DSH 安装）';
   } else {
     /* 与 dsh-app-boot 的判定完全一致：includePrerelease 必须为 true，
        否则 0.x 的预发布版本会被误判为不兼容。 */
     check('peer range 与本机 DSH 运行时兼容', () => {
-      const range = manifest.peerDependencies && manifest.peerDependencies[PEER];
-      assert(typeof range === 'string' && range.trim() !== '', `peerDependencies["${PEER}"] 缺失`);
-      const ok = semver.satisfies(runtime.webserver, range, { includePrerelease: true });
-      assert(ok, `range "${range}" 不接受运行时 ${runtime.webserver}` +
+      const ok = semver.satisfies(runtime.webserver, PEER_RANGE, { includePrerelease: true });
+      assert(ok, `range "${PEER_RANGE}" 不接受运行时 ${runtime.webserver}` +
         ' —— 这会让 DSH 在 boot 阶段整包跳过插件，路由直接 404');
-      return `${range} ⊇ ${runtime.webserver}`;
-    });
-
-    /* 负向对照：证明这条断言真的会失败，不是空转 */
-    check('负向对照：过窄的 range 会被判为不兼容', () => {
-      const tooNarrow = '^0.1.1-rc.2';
-      const ok = semver.satisfies(runtime.webserver, tooNarrow, { includePrerelease: true });
-      assert(!ok, `若 ${tooNarrow} 也接受 ${runtime.webserver}，本组断言就失去了对照意义`);
-      return `${tooNarrow} ⊉ ${runtime.webserver}`;
+      return `${PEER_RANGE} ⊇ ${runtime.webserver}`;
     });
   }
 }
@@ -190,15 +249,25 @@ async function contractTests() {
   /* 用假的 ctx 挂载，再用真实的 http.Server 提供它注册的路由 */
   const registered = [];
   const disposers = [];
+  const indexTaps = [];
   const ctx = {
     get() { return undefined; },
     effect(fn) { const d = fn(); if (typeof d === 'function') disposers.push(d); },
     webServer: {
+      /* 真实 WebServer 是 Service，带 host/port 取值器与 tapIndex；
+         假 ctx 必须同样具备，否则测不到 origin 注入那条路径。 */
+      host: '127.0.0.1',
+      port: 43210,
       register(route) {
         assert(route && (route.kind === 'exact' || route.kind === 'prefix'), 'route.kind 非法');
         assert(typeof route.path === 'string' && typeof route.handler === 'function', 'route 字段不完整');
         registered.push(route);
         return () => { const i = registered.indexOf(route); if (i >= 0) registered.splice(i, 1); };
+      },
+      tapIndex(transform) {
+        assert(typeof transform === 'function', 'tapIndex 需要一个纯函数');
+        indexTaps.push(transform);
+        return () => { const i = indexTaps.indexOf(transform); if (i >= 0) indexTaps.splice(i, 1); };
       },
     },
   };
@@ -211,6 +280,17 @@ async function contractTests() {
     if (mod.LEGACY_ROUTE_PATH) assert(paths.includes(mod.LEGACY_ROUTE_PATH), `缺少别名 ${mod.LEGACY_ROUTE_PATH}`);
     assert(paths.length === (mod.LEGACY_ROUTE_PATH ? 2 : 1), `路由条数异常: ${paths.join(',')}`);
     return paths.join(' ');
+  });
+
+  check('apply 通过 tapIndex 注入真实 origin（端口取自 webServer）', () => {
+    assert(indexTaps.length === 1, `tapIndex 注册了 ${indexTaps.length} 次（应为 1 次）`);
+    const html = '<html><head><title>t</title></head><body></body></html>';
+    const expected = '<meta name="dsh-em-agent-origin" content="http://127.0.0.1:43210">';
+    const out = indexTaps[0](html);
+    assert(out.includes(expected), `注入结果里没有 ${expected}`);
+    assert(out.indexOf(expected) < out.indexOf('</head>'), 'meta 未注入到 </head> 之前');
+    assert(indexTaps[0](out) === out, '重复注入应当是幂等的');
+    return expected;
   });
 
   const server = http.createServer((req, res) => {
@@ -226,13 +306,19 @@ async function contractTests() {
   try {
     const r = await fetch(`${base}${mod.DEFAULT_ROUTE_PATH}`);
     const body = Buffer.from(await r.arrayBuffer());
-    check('GET 主路径 → 200 + 与 panel.html 逐字节一致', () => {
+    check('GET 主路径 → 200 + 注入 origin meta（其余与 panel.html 逐字节一致）', () => {
       assert(r.status === 200, `状态码是 ${r.status}`);
       assert(/text\/html/.test(r.headers.get('content-type') || ''), `content-type 是 ${r.headers.get('content-type')}`);
       assert(r.headers.get('cache-control') === 'no-store', 'cache-control 不是 no-store');
-      assert(body.length === panelBytes.length, `字节数 ${body.length} ≠ panel.html ${panelBytes.length}`);
-      assert(Buffer.compare(body, panelBytes) === 0, '内容与 panel.html 不一致');
-      return `${r.status} / ${body.length} 字节`;
+      assert(r.headers.get('x-dsh-em-agent') === 'panel',
+        '缺少 x-dsh-em-agent 标记头 —— 客户端无法判别相对路径是否真的命中面板');
+      const text = body.toString('utf8');
+      const meta = '<meta name="dsh-em-agent-origin" content="http://127.0.0.1:43210">';
+      assert(text.indexOf(meta) >= 0, '响应里没有注入 origin meta —— 桌面版会掉进 file:// 降级');
+      const stripped = Buffer.from(text.split(meta).join(''), 'utf8');
+      assert(Buffer.compare(stripped, panelBytes) === 0,
+        '去掉注入的 meta 后与 panel.html 不一致 —— 路由不应改动产物本身');
+      return `${r.status} / ${body.length} 字节（含 ${meta.length} 字节 meta）`;
     });
 
     const head = await fetch(`${base}${mod.DEFAULT_ROUTE_PATH}`, { method: 'HEAD' });
@@ -240,7 +326,8 @@ async function contractTests() {
     check('HEAD 主路径 → 200 且无响应体', () => {
       assert(head.status === 200, `状态码是 ${head.status}`);
       assert(headBody.length === 0, `HEAD 带了 ${headBody.length} 字节响应体`);
-      assert(Number(head.headers.get('content-length')) === panelBytes.length, 'content-length 不等于面板大小');
+      assert(Number(head.headers.get('content-length')) === body.length,
+        'content-length 与 GET 的实际长度不一致');
       return `${head.status} / content-length=${head.headers.get('content-length')}`;
     });
 
@@ -254,10 +341,11 @@ async function contractTests() {
     if (mod.LEGACY_ROUTE_PATH) {
       const legacy = await fetch(`${base}${mod.LEGACY_ROUTE_PATH}`);
       const legacyBody = Buffer.from(await legacy.arrayBuffer());
-      check('GET 旧路径别名 → 200 且内容相同', () => {
+      check('GET 旧路径别名 → 200 且与主路径逐字节相同', () => {
         assert(legacy.status === 200, `状态码是 ${legacy.status}`);
-        assert(Buffer.compare(legacyBody, panelBytes) === 0, '别名内容与主路径不一致');
-        return `${mod.LEGACY_ROUTE_PATH} → 200`;
+        assert(Buffer.compare(legacyBody, body) === 0,
+          '别名响应与主路径不一致 —— 两个路径应当共用同一份实现');
+        return `${mod.LEGACY_ROUTE_PATH} → 200 / ${legacyBody.length} 字节`;
       });
     }
 
