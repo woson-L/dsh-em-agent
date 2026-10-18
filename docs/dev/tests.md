@@ -5,6 +5,9 @@
 所有测试都是**真浏览器测试**：通过 CDP 驱动无头 Chrome 打开真实页面，在页面里执行断言。
 不是 DOM 快照比对，也不是 mock。
 
+> 例外是 `test-manifest.cjs`：它测的是**插件包本身**（清单元数据 + 路由契约），
+> 既不需要浏览器，也不需要 `dsh web` 在跑。理由见下文「插件契约测试」。
+
 ## 环境
 
 - Chrome（默认 `C:\Program Files\Google\Chrome\Application\chrome.exe`，
@@ -27,6 +30,9 @@ node test/test-precheck.cjs     "http://127.0.0.1:3080/em-agent"
 node test/test-monitor.cjs      "http://127.0.0.1:3080/em-agent"
 node test/test-constraints.cjs  "http://127.0.0.1:3080/em-agent"
 node test/measure-layout.cjs    "http://127.0.0.1:3080/em-agent" 1600 1080
+
+# 插件契约：不需要浏览器，也不需要 dsh web 在跑
+node test/test-manifest.cjs
 ```
 
 不传 URL 时默认指向 `http://127.0.0.1:3080/em-agent`（插件路由）。
@@ -55,6 +61,24 @@ node test/measure-layout.cjs    "http://127.0.0.1:3080/em-agent" 1600 1080
 | `test-monitor.cjs` | 57 | **端口坐标系 / 覆盖口径 / 对话输入 / 每轮最佳曲线**：指令、预检项 5、预检补齐轮三处必须同口径要求「激励端口建在全局坐标系 xyz、禁止局部 WCS(uvw)」；**工作副本覆盖口径**（`overwrite: true`、禁止自行删工程文件、禁止依赖 CST 确认框）出现在 `# 7.1`、`# 10` 每轮流程与预检补齐轮；输入框回车发送（Shift+Enter 换行、输入法选字回车放行）、发送走队列模式不打断、**运行中清空对话不丢会话也不改状态**；曲线按轮次分桶（同轮同频取最优）、一轮一条、最佳轮次高亮且只标它的采集点、同一条消息里的 `round` 让频点落到本轮 |
 | `test-constraints.cjs` | 52 | **天线仿真固定约束 FC1 / FC2**：指令 7.2 节存在且**路径随配置插值**（更换路径后不残留旧值）；FC1 的四项要件（`0.035` mm 厚度、上/下表面、与 port 同高度平面、形状限于该平面内）与 FC2 的两项白名单、「不得改删其它 Component」、禁止「新建再删旧」绕过；**每一轮**——7.2 自检写进 `# 10` 流程，并在预检与预检补齐轮各重申一次；`# 9` 设计自由度以 7.2 为界；天线厚度字段只读，DOM 改写与恢复历史存档均无法改变 `0.035`；界面上不存在可修改 FC1 / FC2 的控件 |
 | `measure-layout.cjs` | — | 布局几何实测（各模块高度之和 = 左栏高度）+ **双向**鼠标拖拽：向下变大、向上回到初始、再向上能低于初始、双击复位 |
+| `test-manifest.cjs` | 21 | **插件契约**（不依赖浏览器与运行中的 DSH）：清单版本 / `dsh.bundle.patch` / `files` / `repository`+`license`；**声明的 peer range 必须被本机 DSH 运行时接受**（附负向对照，本机无 DSH 时记 SKIP）；真实 `import` + 真实 `http.Server` 下的 200 / HEAD / 405+`Allow` / 旧路径别名 / 释放后消失，响应体与 `plugin/panel.html` 逐字节一致 |
+
+### 插件契约测试（`test-manifest.cjs`）
+
+它测的不是页面，而是**插件包会不会被 DSH 挂上**。三组：
+
+| 组 | 断言什么 | 为什么单独有它 |
+| --- | --- | --- |
+| 清单 | 版本号形态、`dsh.bundle.patch` 指向且含 `em-agent-panel` 行、`files` 覆盖运行期文件、`repository` / `license` | 包要能被解析、能发布 |
+| 运行时兼容 | 声明的 `peerDependencies` range 必须接受**本机实际安装的** DSH 版本 | 2026-10-18 的事故就是这一条失守：`^0.1.1-rc.2` 不接受 `0.2.0-rc.2`，DSH 在 boot 阶段**整包跳过**，`/em-agent` 直接 404。浏览器套件只会一起失败，指不出真正原因 |
+| 路由契约 | 真实 `import` 插件 + 真实 `http.Server`：200 / HEAD / 405+`Allow` / 旧路径别名 / 释放后消失 | 改 `index.js` 不必先起 DSH 就能确认契约没破 |
+
+本机没装 DSH（或没有 DSH 自带的 `semver`）时，「运行时兼容」组记 `SKIP` 并写进 `results`，
+**不判失败**——与 `test-rpc.cjs` 对 typert 清单的处理一致。装了 DSH 但想指到别处，
+用环境变量 `DSH_PKG_ROOT` 指定 `.../@deepseek-ai/dsh` 目录。
+
+> **负向对照不是装饰。** 该组里有一条断言要求「旧的 `^0.1.1-rc.2` 必须被判为不兼容」。
+> 少了它，range 一旦写宽，这条检查会永远通过，什么也证明不了。
 
 ### 表格里的断言数是会漂的
 
@@ -62,7 +86,7 @@ node test/measure-layout.cjs    "http://127.0.0.1:3080/em-agent" 1600 1080
 
 ```powershell
 # test-acceptance 数 evidence 的叶子键；其余数 results 的键
-foreach ($t in 'test-acceptance','test-setup','test-editor','test-blockdata','test-custom-items','test-rpc','test-eventstream','test-precheck','test-monitor','test-constraints') {
+foreach ($t in 'test-acceptance','test-setup','test-editor','test-blockdata','test-custom-items','test-rpc','test-eventstream','test-precheck','test-monitor','test-constraints','test-manifest') {
   node "test/$t.cjs" "http://127.0.0.1:3080/em-agent" |
     ConvertFrom-Json |
     ForEach-Object { $o = if ($_.evidence) { $_.evidence } else { $_.results }
@@ -86,6 +110,7 @@ foreach ($t in 'test-acceptance','test-setup','test-editor','test-blockdata','te
 | 运行监控曲线、对话输入行为、任务指令文案（含端口坐标系、覆盖口径） | `test-monitor.cjs` |
 | 固定约束 FC1 / FC2 的文案、下发位置、天线厚度锁定 | `test-constraints.cjs` |
 | 移除了某个界面元素 | 在对应套件加「该 id 不存在」断言，**并**把它登记进构建的退役清单 |
+| `plugin/package.json`（版本、`peerDependencies`、`files`）或 `plugin/index.js` 的路由契约 | `test-manifest.cjs` |
 | 布局结构 | `test-acceptance.cjs` + `measure-layout.cjs` |
 
 > **移除元素时的双保险**：构建门禁会校验基线 id（见 [构建与硬门禁](build.md)），

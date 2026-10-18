@@ -6,11 +6,44 @@
 | 组件 | 是否随本项目提供 | 说明 |
 | --- | --- | --- |
 | 页面本体 | ✅ **是** | `dist/antenna-optimizer-panel.html`，单文件、零依赖 |
-| DSH（DeepSeek Harness） | ❌ 否 | 运行环境，需自行安装；页面靠它调用模型与 MCP |
+| DSH（DeepSeek Harness） | ❌ 否 | 运行环境，需自行安装；页面靠它调用模型与 MCP。**版本必须匹配**，见下节 |
 | **CST Studio Suite MCP** | ❌ **否，需单独安装** | 独立 Python 包 `cst-studio-suite-mcp`，见[安装与检测 CST MCP](mcp.md) |
 | CST Studio Suite 2026 | ❌ 否 | 商业软件，需自行安装并授权 |
 | Python ≥ 3.10 | ❌ 否 | MCP 服务端运行需要 |
 | CST Skill（提示词包） | ❌ 否 | `cst-onboard-antenna` 等三个 Skill，用于约束模型行为 |
+
+## DSH 版本要求
+
+插件把宿主声明为 peer 依赖（`plugin/package.json` 的 `peerDependencies`）。
+DSH 在 **boot 阶段**校验它；不满足时**整包跳过**——不报错、不加载，loader 树里没有
+`em-agent-panel` 这一行，表现就是页面返回 404。
+
+| 插件版本 | 支持的 `@deepseek-ai/dsh-host-webserver` |
+| --- | --- |
+| `0.1.1` 及以后 | `^0.1.1-rc.2 \|\| ^0.2.0-rc.1`（0.1 线与 0.2 线） |
+| `0.1.0` | 仅 `^0.1.1-rc.2`——**升到 0.2 线后会被整包跳过，页面 404** |
+
+> ⚠️ **`^0.1.1-rc.2` 不接受 `0.2.0-rc.2`。** 0.x 的 caret 上界是 `<0.2.0-0`，
+> 下界带预发布时上界也被钉成预发布版本，于是 `0.2.0-rc.2` 落在界外。
+> 写 peer range 时不能只按「大版本号没变」推理，必须实际比对一次。
+
+自查（不需要页面在跑，也不需要浏览器）：
+
+```bash
+node test/test-manifest.cjs
+```
+
+它拿本机实际安装的 DSH 版本与声明的 range 比对；本机没装 DSH 时该组记 `SKIP`，不判失败。
+装了 DSH 却想指到别的位置，用环境变量 `DSH_PKG_ROOT` 指定 `.../@deepseek-ai/dsh` 目录。
+
+出问题时的第一手证据是组合后的配置树：
+
+```bash
+dsh --profile web --dump-config
+```
+
+- 有 `- id: em-agent-panel` → 插件已挂载，404 要从路由或 profile 层找原因
+- 没有这一行，且 stderr 出现 `skipping profile bundle "dsh-em-agent"` → 就是本节这条
 
 ### ⚠️ 关于 CST MCP 的重要说明
 
@@ -56,3 +89,15 @@ python check_install.py --fix --workspace "C:\CST_MCP_workspace"
 [woson-L/cst-studio-suite-mcp](https://github.com/woson-L/cst-studio-suite-mcp) 的
 `docs/dev/verification.md`（Overwriting a project without a confirmation），
 离线回归为 `tests/test_save_overwrite.py`。升级后需重启 DSH，MCP 服务端才会加载新代码。
+
+---
+
+## 相关文档
+
+- [从 DSH Store 安装](store.md) —— 安装、启用、启动的完整流程
+- [安装与检测 CST MCP](mcp.md) —— MCP 侧的安装与自检
+- [CST 与 MCP 的页面内配置](cst.md)
+- [仓库结构与开发入门](repo.md)
+- [排查](../dev/troubleshooting.md) —— 页面打不开时先看这里
+- [回归测试](../dev/tests.md) —— 含本文提到的 `test-manifest.cjs`
+

@@ -13,6 +13,7 @@
 | --- | --- | --- |
 | `/em-agent` 返回 404 | 插件行没生效 | 检查 `cordis.patch.yml` 里的 `insert` 形式与缩进，重启一次 `dsh web` 确认 |
 | 同上，且 patch 文件里明明写了 | 该行带了 `id` 指向不存在的条目 | DSH 对这种情况**只告警然后静默跳过**。改成无 `id` 的 `insert` 形式 |
+| **`/em-agent` 404，patch 行、`id`、profile 全都没动过，升级 DSH 之后才出现** | 插件的 `peerDependencies` 不接受当前 DSH 版本。DSH 在 boot 阶段判定不兼容后**整包跳过**（`skipping profile bundle "dsh-em-agent"`），loader 树里没有 `em-agent-panel` | 看 `dsh --profile web --dump-config`：没有 `- id: em-agent-panel` 且 stderr 有 `skipping profile bundle` 即为此因；插件管理面板里会显示 `error.code = incompatible-version`。修法：升到 `0.1.1`+（range 已含 0.2 线）。机制见 [依赖总览 · DSH 版本要求](../start/dependencies.md#dsh-版本要求) |
 | 保存了 patch 文件但路由没变 | 热加载只覆盖配置文件，不覆盖插件代码 | 路由行的增删会热生效；`index.js` 的改动**必须重启** |
 | 页面能开，但按钮都是「复制指令」 | 用了 `file://` 直接打开 | 改用 `http://127.0.0.1:<端口>/em-agent` |
 | **页面能开、界面正常，但点「启动仿真」报 401 / 传输失败** | 浏览器里没有 DSH 的登录 cookie。插件路由本身不鉴权（所以页面照常 200），但它调用的 `/api/*` 会校验 cookie | 先访问一次 `dsh web` 自动给出的主界面地址（形如 `http://127.0.0.1:3080/?token=…`，服务端 303 下发 `Path=/` 的 cookie），之后 `/em-agent` 即可正常使用 |

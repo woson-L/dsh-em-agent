@@ -55,6 +55,63 @@
 
 ---
 
+## [0.1.1] — 2026-10-18
+
+### 修复：DSH 升到 0.2 线后 `/em-agent` 返回 404
+
+**现象。** DSH 升级到 `0.2.0-rc.2` 之后，原本正常的 `/em-agent` 变成 404，
+旧路径别名 `/antenna-optimizer` 同样 404，页面完全进不去。profile 配置、插件行的
+`insert`、`panel.html` 都没有被改动过。
+
+**根因（在插件自己身上，不在 DSH）。** `plugin/package.json` 把宿主声明为：
+
+```json
+"peerDependencies": {
+  "@deepseek-ai/dsh-host-webserver": "^0.1.1-rc.2"
+}
+```
+
+0.x 的 caret 上界是 `<0.2.0-0` —— 注意结尾那个 `-0`。带预发布下界的 range 会把上界
+也钉成预发布版本，于是 `^0.1.1-rc.2` **不接受** `0.2.0-rc.2`。DSH 在 boot 阶段做 peer
+兼容性检查，判定不兼容后**整包跳过**：
+
+```
+dsh: skipping profile bundle "dsh-em-agent": Error: Plugin dsh-em-agent@2.0.0 is
+incompatible with dsh 0.2.0-rc.2: peerDependencies {"@deepseek-ai/dsh-host-webserver":"^0.1.1-rc.2"}.
+```
+
+（错误里那个 `2.0.0` 是当时本机旧安装副本的版本号，与仓库版本号无关 —— 关键是它后面引用的
+peer range。）
+
+loader 树里因此根本没有 `em-agent-panel` 这一行，路由不存在，请求落到 fallback 回 404。
+这条失败是**静默**的：查 patch 文件、查 profile、查 `panel.html` 全部正常，
+唯一会喊出来的地方是 `dsh --profile web --dump-config` 的 stderr。
+
+**修复。** peer range 改为 `^0.1.1-rc.2 || ^0.2.0-rc.1`，0.1 线与 0.2 线同时支持。
+宿主侧的 `webServer.register({ kind, path, handler })` 契约在 0.2.0-rc.2 未变，
+插件代码本身不需要改。
+
+### 新增：`test/test-manifest.cjs`（插件契约测试）
+
+21 条断言，**不需要浏览器，也不需要 DSH 在跑**。它锁住两件此前无人看守的事：
+
+- 声明的 peer range 必须被本机 DSH 运行时接受 —— 带一条**负向对照**：证明旧的
+  `^0.1.1-rc.2` 会被判为不兼容。没有这条对照，断言可能在 range 写宽后空转
+- 真实 `import` 插件，用真实 `http.Server` 挂上它注册的路由，断言 200 / HEAD /
+  405 + `Allow` / 旧路径别名 / 释放后消失，并逐字节比对响应体与 `plugin/panel.html`
+
+十一套浏览器回归在「整包被跳过」这类故障下只会**一起失败**，指向不了清单元数据这个
+真正的原因。本套件补上了这一环，见[回归测试](docs/dev/tests.md)。
+
+### 修复：`build/deploy.ps1` 丢失 UTF-8 BOM
+
+该脚本含 432 个中文字符；缺 BOM 时 Windows PowerShell 5.1 会按 GBK 解码并吞掉引号，
+产生 **9 处语法错误**，`powershell -File build\deploy.ps1` 根本无法解析 ——
+与[构建与硬门禁](docs/dev/build.md)记录的形态完全一致，属于文档已经写明「必须保留」
+却再次被编辑器静默去掉的情况。已补回 BOM，其余字节未动。
+
+---
+
 ## 未发布
 
 后续版本的改动记录在此。

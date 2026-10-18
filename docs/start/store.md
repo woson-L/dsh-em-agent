@@ -82,7 +82,9 @@ package.json 里有没有 dsh-em-agent：
 【第四步：启动并验证】
 没有在跑就 dsh web 启动（默认 127.0.0.1:3080；它会自动开浏览器，同时给我种下登录 cookie）。
 验证：curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3080/em-agent → 必须 200。
-若是 404：先查缩进与 insert 形式，再重启一次 dsh web 确认。
+若是 404：先查缩进与 insert 形式；再查 DSH 版本与插件声明的 peer range 是否匹配
+（跑 dsh --profile web --dump-config，看不到 - id: em-agent-panel 就是被整包跳过了，
+见仓库 docs/start/dependencies.md）；最后重启一次 dsh web 确认。
 
 【第五步：把结果报给我】
 /em-agent 的状态码与响应字节数；浏览器打开后是否自动弹出「首次配置」面板；
@@ -103,7 +105,7 @@ package.json 里有没有 dsh-em-agent：
 
 | 项 | 必需 | 说明 |
 | --- | --- | --- |
-| DSH | ✅ | 提供 `dsh` 命令。`dsh --version` 能出版本号即可 |
+| DSH | ✅ | 提供 `dsh` 命令。`dsh --version` 能出版本号即可。**版本须与插件匹配**（`0.1.1` 支持 DSH 0.1 / 0.2 两线，`0.1.0` 在 DSH 0.2 上会被整包跳过），见[依赖总览 · DSH 版本要求](dependencies.md#dsh-版本要求) |
 | pnpm | ✅ | `dsh plugin` 会把参数转发给 profile 目录下的 pnpm |
 | CST Studio Suite 2026 | ⬜ | **不装也能打开页面**，只是不能真正跑仿真（商业软件，需自行授权） |
 | CST MCP 服务端 | ⬜ | 同上。不装则页面停在「MCP 未连接」，其余配置功能照常可用 |
@@ -286,6 +288,7 @@ dsh web
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `/em-agent` 返回 404 | patch 行没生效，或 `id` 指向了不存在的条目被静默跳过 | 检查 patch 文件里的 `insert` 形式与缩进；重启一次 `dsh web` 确认 |
+| `/em-agent` 返回 404，但 patch 行与 `id` 都对 | 插件的 `peerDependencies` 不接受当前 DSH 版本，DSH 在 boot 阶段**整包跳过**（`0.1.0` + DSH 0.2 就会这样） | 跑 `dsh --profile web --dump-config`：没有 `- id: em-agent-panel` 且 stderr 有 `skipping profile bundle` 即为此因。升到 `0.1.1`+，见[依赖总览 · DSH 版本要求](dependencies.md#dsh-版本要求) |
 | 保存了 patch 文件但路由没变 | 热加载只覆盖配置文件，不覆盖插件代码 | 路由相关的 patch 改动会热生效；`index.js` 的改动必须重启 |
 | 页面能开但按钮都是「复制指令」 | 用了 `file://` 直接打开 | 改用 `http://127.0.0.1:<端口>/em-agent` |
 | **页面能开、界面正常，但点「启动仿真」报 401 / 传输失败** | 浏览器还没有 DSH 的登录 cookie（从未访问过主界面，或 cookie 已被清） | 先打开一次 `dsh web` 自动给出的主界面地址（形如 `http://127.0.0.1:3080/?token=…`），cookie 种下后 `/em-agent` 即可正常使用 |
