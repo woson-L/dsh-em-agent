@@ -1,0 +1,82 @@
+/* v2 骨架：preview-ub 结构所需的覆盖样式（只作用于 v2 页面） */
+
+/* 顶栏 */
+.v2-top {
+  position: sticky; top: 0; z-index: 60;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 9px max(var(--shell-pad), calc((100% - var(--shell-max)) / 2 + var(--shell-pad)));
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.v2-brand { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); }
+.v2-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--primary); }
+.v2-ver { font-size: 11px; color: var(--text-mute); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; line-height: 16px; }
+.v2-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.v2-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 状态行与 KPI 行 */
+.v2-status, .v2-kpis {
+  display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+  padding: 6px max(var(--shell-pad), calc((100% - var(--shell-max)) / 2 + var(--shell-pad)));
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-weak);
+  font-size: 12px; color: var(--text-mute);
+}
+.v2-status .state-badge { font-size: 12px; }
+.v2-status .run-id { font-family: var(--mono); font-size: 12px; color: var(--text-sub); }
+.v2-kpis .kpi { display: flex; align-items: baseline; gap: 6px; padding: 0; border: 0; background: none; }
+.v2-kpis .kpi::before { display: none; }
+.v2-kpis .kpi .k-label { margin: 0; font-size: 12px; font-weight: 400; color: var(--text-mute); }
+.v2-kpis .kpi .k-value { font-size: 14.5px; font-weight: 650; }
+
+/* 卡片：details 变成「卡片 + 卡片头」 */
+details.card, section.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: none;
+  padding: 0;
+  margin-bottom: 12px;
+}
+details.card > summary {
+  margin: 0;
+  padding: 11px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-weak);
+}
+details.card > summary::before { display: none; }
+details.card > .card-body { padding: 14px 16px 16px; }
+section.card > h2 { margin: 0; padding: 11px 16px; border-bottom: 1px solid var(--border-weak); }
+section.card > h2::after { display: none; }
+section.card > *:not(h2) { margin-left: 16px; margin-right: 16px; }
+section.card > *:not(h2):first-of-type { margin-top: 12px; }
+section.card > *:not(h2):last-child { margin-bottom: 14px; }
+
+/* 任务台已在 v2 拆掉，隐藏残留 */
+.taskbar { display: none !important; }
+
+/* 窄屏 */
+@media (max-width: 1000px) {
+  .v2-meta { display: none; }
+  .v2-actions { margin-left: 0; }
+}
+/* 隐藏的诊断卡（保留 id，脚本仍可更新） */
+main [hidden] { display: none !important; }
+
+/* 折叠卡右侧摘要 */
+.v2-note { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--text-mute); }
+
+/* 运行记录为主区域，输入条贴底 */
+.col-right { display: flex; flex-direction: column; }
+.col-right > #eventflowCard { flex: 1 1 auto; min-height: 420px; display: flex; flex-direction: column; }
+.col-right > #eventflowCard .chat-view { flex: 1 1 auto; min-height: 220px; }
+
+/* 页脚 */
+.v2-foot {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  max-width: var(--shell-max); margin: 8px auto 24px;
+  padding: 10px 2px; border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--text-mute);
+}
+.v2-foot-note { margin-left: auto; color: var(--text-mute); }

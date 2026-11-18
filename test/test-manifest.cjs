@@ -32,6 +32,7 @@ const ROOT = path.join(__dirname, '..');
 const PLUGIN_DIR = path.join(ROOT, 'plugin');
 const PLUGIN_JSON = path.join(PLUGIN_DIR, 'package.json');
 const PANEL = path.join(PLUGIN_DIR, 'panel.html');
+const PANEL_CLASSIC = path.join(PLUGIN_DIR, 'panel.html');
 
 const results = {};
 const failures = [];
@@ -210,6 +211,7 @@ if (!semver) {
 async function contractTests() {
   const mod = await import(pathToFileURL(path.join(PLUGIN_DIR, 'index.js')).href);
   const panelBytes = fs.readFileSync(PANEL);
+  const classicBytes = fs.readFileSync(PANEL_CLASSIC);
 
   check('导出 name / inject / Config / apply', () => {
     assert(mod.name === 'dsh-em-agent', `name 实际是 ${mod.name}`);
@@ -278,7 +280,11 @@ async function contractTests() {
     const paths = registered.map((r) => r.path).sort();
     assert(paths.includes(mod.DEFAULT_ROUTE_PATH), `缺少主路径 ${mod.DEFAULT_ROUTE_PATH}`);
     if (mod.LEGACY_ROUTE_PATH) assert(paths.includes(mod.LEGACY_ROUTE_PATH), `缺少别名 ${mod.LEGACY_ROUTE_PATH}`);
-    assert(paths.length === (mod.LEGACY_ROUTE_PATH ? 2 : 1), `路由条数异常: ${paths.join(',')}`);
+      const bridge = (mod.DEFAULT_ROUTE_PATH === '/' ? '' : mod.DEFAULT_ROUTE_PATH) + '/run-bridge.js';
+      const mainCount = paths.filter((p) => p === mod.DEFAULT_ROUTE_PATH).length;
+      assert(mainCount === 2, 'main route registered twice (exact + prefix): ' + paths.join(','));
+      assert(paths.includes(bridge), 'missing bridge route: ' + bridge);
+      assert(paths.length === (mod.LEGACY_ROUTE_PATH ? 4 : 3), 'unexpected route count: ' + paths.join(','));
     return paths.join(' ');
   });
 
@@ -315,7 +321,9 @@ async function contractTests() {
       const text = body.toString('utf8');
       const meta = '<meta name="dsh-em-agent-origin" content="http://127.0.0.1:43210">';
       assert(text.indexOf(meta) >= 0, '响应里没有注入 origin meta —— 桌面版会掉进 file:// 降级');
-      const stripped = Buffer.from(text.split(meta).join(''), 'utf8');
+         assert(/<meta name="dsh-em-agent-token" content="[0-9a-f-]{36}">/.test(text), 'missing token meta');
+         assert(/<script src="[^"]*run-bridge\.js" defer><\/script>/.test(text), 'missing bridge script tag');
+         const stripped = Buffer.from(text.split(meta).join('').replace(/<meta name="dsh-em-agent-token" content="[^"]*">/g, '').replace(/<script src="[^"]*run-bridge\.js" defer><\/script>/g, ''), 'utf8');
       assert(Buffer.compare(stripped, panelBytes) === 0,
         '去掉注入的 meta 后与 panel.html 不一致 —— 路由不应改动产物本身');
       return `${r.status} / ${body.length} 字节（含 ${meta.length} 字节 meta）`;

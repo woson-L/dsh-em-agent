@@ -130,7 +130,7 @@ async function main() {
   all.manualNoCancel = manSrc.indexOf('cancel') < 0;
   all.manualKeepsInputOnFail = manSrc.indexOf('内容已保留在输入框') >= 0;
   all.manualQueuedHint = manSrc.indexOf('不打断当前任务') >= 0;
-  all.hintInDom = await evalJs(`document.querySelectorAll('section.card').length > 0 && document.body.innerHTML.indexOf('不会打断正在运行的预检或迭代') >= 0`);
+  all.hintInDom = await evalJs(`document.querySelectorAll('section.card').length > 0 && document.getElementById('helpOverlay').textContent.indexOf('不会打断正在运行的预检或迭代') >= 0`);
 
   const clear = await evalJs(`(() => {
     const out = {};
@@ -141,7 +141,7 @@ async function main() {
     out.declinedKeepsSession = chatSession;
     out.declinedKeepsState = runState;
     window.confirm = () => true;
-    document.getElementById('chatView').innerHTML = '<div class="chat-msg">x</div>';
+    document.getElementById('chatView').innerHTML = '<div class="log-row">x</div>';
     document.getElementById('btnClearChat').click();
     out.clearedView = document.getElementById('chatView').innerHTML === '';
     out.keptSessionWhileRunning = chatSession;

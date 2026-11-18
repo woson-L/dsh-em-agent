@@ -122,3 +122,36 @@ python check_install.py --fix --workspace "C:\CST_MCP_workspace"
 - [排查](../dev/troubleshooting.md) —— 页面打不开时先看这里
 - [回归测试](../dev/tests.md) —— 含本文提到的 `test-manifest.cjs`
 
+
+## 运行桥接的额外依赖（0.3.0）
+
+面板的 headless 运行需要 `~/.dsh/profiles/headless` 存在，且其 bundles 含
+`@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-headless`（DSH 自带，无需另装）。
+
+CST MCP 不写进任何 profile：用户只需在「运行设置」里填 **MCP 包目录**，
+宿主每次运行时生成临时 patch 并在结束后删除。默认派生：
+
+- Python：`<包目录>/.venv/Scripts/python.exe`
+- 入口：`<包目录>/mcp_server.py`
+
+未填包目录时不注册 MCP，模型将看不到 CST 工具——此时启动仿真会因缺少工具而失败，
+属预期行为。
+### 会话隔离与权限钉死（0.3.0 追加）
+
+headless 默认会把会话写进 `~/.dsh/sessions`，于是 DSH 侧栏会多出一条会话——
+看起来像「在 Harness 里新建了会话」，而且点进去后是**另一个 profile 的策略**在跑，
+插件页授予的权限不沿用。
+
+因此每次 run 生成的 `dsh.patch.yml` 固定包含三条覆盖，不依赖环境变量传导：
+
+```yaml
+- id: session-persistence-jsonl     # 会话写插件私有目录，不进工作区
+  config: { root: "<私有目录>" }
+- id: sandbox-policy                # 沙箱档位
+  config: { mode: "danger-full-access" | "workspace-write" }
+- id: approval                      # 审批策略：完全访问 → never，其余 → ask
+  config: { policy: "never" | "ask" }
+```
+
+私有目录默认 `%TEMP%\dsh-em-agent-sessions`，可用 `DSH_EM_AGENT_SESSION_ROOT` 覆盖。
+这样插件页跑的任务**不会在工作区产生会话**，也就不存在「点进会话回不来」的路径。

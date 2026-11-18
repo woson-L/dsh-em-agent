@@ -1,6 +1,6 @@
 {
   "name": "dsh-em-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DSH EM Agent: AI agent end-to-end antenna design console for DeepSeek Harness. CST Studio Suite MCP driven, single-file panel, no runtime deps.",
   "type": "module",
   "main": "index.js",

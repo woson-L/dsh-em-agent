@@ -10,7 +10,7 @@ src/baseline/antenna-optimizer-config-panel.original.html   （只读，永不�
         +
 src/styles.css                                              （样式，直接编辑）
         +
-build/build.ps1 里的 133 处补丁                              （HTML/JS 行为改动）
+build/build.ps1 里的 171 处补丁                              （HTML/JS 行为改动）
         ↓
 dist/antenna-optimizer-panel.html                           （单文件产物）
         ↓  自动同步
@@ -32,6 +32,8 @@ plugin/panel.html                                           （插件包内的�
 ## 怎么构建
 
 ```powershell
+# v2 页面（新骨架，路由 /em-agent）
+
 # Windows PowerShell 5.1（本机默认）
 powershell -NoProfile -ExecutionPolicy Bypass -File build\build.ps1
 
@@ -62,7 +64,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\render-check.ps1
 
 | 门禁 | 作用 |
 | --- | --- |
-| 补丁精确命中 | 每处补丁必须在基线中恰好匹配 1 次（当前 133 处） |
+| 补丁精确命中 | 每处补丁必须在基线中恰好匹配 1 次（当前 171 处） |
 | **反向还原校验** | 产物里的补丁逐一还原后，必须与基线脚本 **SHA256 逐字节相同** —— 以此证明产物 = 基线 + 恰好这些改动 |
 | 结构断言 | `style`/`head`/`body`/`script` 标签配对（曾因漏掉 `</style>` 导致整页空白） |
 | 钩子校验 | 原有 78 个 id：**75 个保留 + 3 个显式退役**，新增量与补丁推导值一致 |
@@ -115,7 +117,7 @@ build/build.ps1    无 BOM：711 处语法错误，脚本完全无法解析
 
 > **中文落在字符串字面量里最容易中招**：注释被 mangle 最多是显示乱码，而字面量
 > （例如状态输出里的 `'是' / '否'`）被 mangle 会直接打断语句、让整个脚本无法解析。
-> `tools/restart-verify.ps1` 与 [`tools/render-check.ps1`](../../tools/render-check.ps1)
+> `tools/restart-web.ps1` 与 [`tools/render-check.ps1`](../../tools/render-check.ps1)
 > 都是**刻意只用 ASCII** 写成的，所以它们没有这个约束 —— 需要跨机器稳定时优先这么写。
 
 **部分编辑器（以及一些自动改写工具）保存时会静默去掉 BOM。**

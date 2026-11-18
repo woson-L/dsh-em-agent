@@ -85,3 +85,57 @@
 任务指令与预检三处共用同一句话）、`ANTENNA_THICKNESS_MM` / `FC1_TITLE` / `FC2_TITLE`
 （[天线仿真固定约束](../constraints/README.md)的文案来源）、`STATE_FIXED_IDS`
 （不从 `localStorage` 恢复的固定约束字段）、`RUN_ACTIVE_STATES`（算作「运行中」的状态集合）。
+
+## 运行桥接（0.3.0）
+
+面板的「启动仿真」不再把任务投进 DSH 会话，而是由插件宿主以
+`dsh --profile headless --json` 起子进程，事件流（JSONL → SSE）交给面板的「运行记录」渲染。
+因此渲染不依赖 DSH 的对话 surface。
+
+| 路由 | 方法 | 作用 |
+| --- | --- | --- |
+| `/em-agent/run` | POST | 启动一次 headless 运行（需 `x-em-token`） |
+| `/em-agent/runs` | GET | 列出运行与并发状态 |
+| `/em-agent/run/<id>` | GET | 单次运行快照 |
+| `/em-agent/run/<id>/events` | GET | SSE 事件流（支持 `Last-Event-ID` 续传） |
+| `/em-agent/run/<id>/cancel` | POST | 取消（Windows 杀进程树） |
+| `/em-agent/run-bridge.js` | GET | 注入面板的桥接脚本 |
+
+`x-em-token` 由宿主每次 apply 生成，只注入同源面板；跨源请求会被 CORS 预检挡住。
+并发上限取环境变量 `DSH_EM_AGENT_MAX_CONCURRENT`（默认 1，范围 1–8），超限返回 429。
+### 会话隔离与权限钉死（0.3.0 追加）
+
+headless 默认会把会话写进 `~/.dsh/sessions`，于是 DSH 侧栏会多出一条会话——
+看起来像「在 Harness 里新建了会话」，而且点进去后是**另一个 profile 的策略**在跑，
+插件页授予的权限不沿用。
+
+因此每次 run 生成的 `dsh.patch.yml` 固定包含三条覆盖，不依赖环境变量传导：
+
+```yaml
+- id: session-persistence-jsonl     # 会话写插件私有目录，不进工作区
+  config: { root: "<私有目录>" }
+- id: sandbox-policy                # 沙箱档位
+  config: { mode: "danger-full-access" | "workspace-write" }
+- id: approval                      # 审批策略：完全访问 → never，其余 → ask
+  config: { policy: "never" | "ask" }
+```
+
+私有目录默认 `%TEMP%\dsh-em-agent-sessions`，可用 `DSH_EM_AGENT_SESSION_ROOT` 覆盖。
+这样插件页跑的任务**不会在工作区产生会话**，也就不存在「点进会话回不来」的路径。
+## 运行设置的路由与落盘（0.3.0 追加）
+
+| 路由 | 方法 | 说明 |
+| --- | --- | --- |
+| `/em-agent/settings` | GET | 读取运行设置（需 `x-em-token`） |
+| `/em-agent/settings` | POST | 合并写入；只接受 `mcpDir`(≤500 字符) 与 `policy`(枚举)，其余键丢弃 |
+
+**为什么存在宿主侧而不是只用 localStorage**：桌面版的宿主端口每次启动都变
+（`http://127.0.0.1:<动态端口>`），而 `localStorage` 按 origin（含端口）隔离，
+按 origin 存的设置会在下次启动时读不到。因此落盘在：
+
+```
+%LOCALAPPDATA%\dsh-em-agent\settings.json
+```
+
+可用 `DSH_EM_AGENT_SETTINGS` 覆盖路径。`localStorage` 只作为离线缓存，
+宿主的文件是唯一权威来源。

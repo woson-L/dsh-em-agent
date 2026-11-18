@@ -30,6 +30,7 @@ node test/test-precheck.cjs     "http://127.0.0.1:3080/em-agent"
 node test/test-monitor.cjs      "http://127.0.0.1:3080/em-agent"
 node test/test-constraints.cjs  "http://127.0.0.1:3080/em-agent"
 node test/measure-layout.cjs    "http://127.0.0.1:3080/em-agent" 1600 1080
+node test/test-ui.cjs           "http://127.0.0.1:3080/em-agent"
 
 # 插件契约：不需要浏览器，也不需要 dsh web 在跑
 node test/test-manifest.cjs
@@ -63,7 +64,20 @@ node test/test-manifest.cjs
 | `measure-layout.cjs` | — | 布局几何实测（各模块高度之和 = 左栏高度）+ **双向**鼠标拖拽：向下变大、向上回到初始、再向上能低于初始、双击复位 |
 | `test-manifest.cjs` | 27 | **插件契约**（不依赖浏览器与运行中的 DSH）：清单版本 / `dsh.bundle.patch` / `files` / `repository`+`license`；**客户端半边**——`dsh.client` 段与 `./client` 导出、工厂 id 必须等于包名；**版本矩阵**——0.1 与 0.2 全线（含预发布）必须被 peer range 接受、0.3 及以后必须被拒绝，另有一条负向对照证明旧写法会同时拒掉 `0.1.0` 与 `0.2.x`；`x-dsh-em-agent` 标记头；`tapIndex` 注入的 meta 用 `webServer` 的真实端口且重复注入幂等；真实 `import` + 真实 `http.Server` 下的 200 / HEAD / 405+`Allow` / 旧路径别名 / 释放后消失，响应体与 `plugin/panel.html` 逐字节一致 |
 
-### 插件契约测试（`test-manifest.cjs`）
+### 显示层与控件（test-ui.cjs）
+
+改版新增的显示层单独一套断言，全部通过真实点击 / 键盘事件触发：
+
+| 断言组 | 内容 |
+| --- | --- |
+| 说明面板 | 打开后焦点进入面板；Esc 关闭后焦点回到触发按钮 |
+| 显示偏好 | 布局 / 密度 / 比例写入 `data-*` 与 CSS 变量；重载后仍生效 |
+| 扩展模块 | 注册表挂载出 `#ub-module-<id>`；卸载后回到空态提示 |
+| 运行记录 | 工具行出现、详情可展开；超长消息折叠与展开 |
+| 频段模型 | 勾选第二个频段后结果表多一行（图表与表同源） |
+| 阈值联动 | 改阈值后图表 SVG 重新绘制 |
+
+## 插件契约测试（`test-manifest.cjs`）
 
 它测的不是页面，而是**插件包会不会被 DSH 挂上**。三组：
 
@@ -160,3 +174,46 @@ await evalJs("document.getElementById('chatResize').scrollIntoView({block:'cente
 - [构建与硬门禁](build.md) —— 生成期的七道门
 - [排查](troubleshooting.md) —— 测试失败时先看这里
 - [自定义频段与特殊需求](../panel/custom-items.md) —— 断言覆盖的功能
+
+## 运行环路端到端（0.3.0 新增）
+
+`test/test-runloop.cjs` —— 在**真实 DSH 页面**上点一次「启动仿真」，验证
+`面板 → 宿主 /em-agent/run → headless dsh → JSONL → SSE → 运行记录` 整条链路。
+
+| 断言 | 含义 |
+| --- | --- |
+| `.em-runbar` 存在 / token meta 存在 | 宿主把桥接脚本与 token 注入成功 |
+| 审批下拉默认 `danger-full-access` | 默认策略符合约定 |
+| 90 秒内出现 `#chatView .log-row` | 事件真的被渲染，不是空跑 |
+| 同时出现「工具」行与「结束」行 | 工具事件与终止事件都被处理 |
+| 状态收尾为「已结束」 | run 正常收敛，没有悬挂 |
+
+用法：
+
+```powershell
+node test\test-runloop.cjs http://127.0.0.1:3080/em-agent
+```
+
+测试先断言**真实路径**能生成指令（`buildInstruction(readConfig())` 长度 > 100），
+再把它替换为无害指令（「只回复 OK」）后执行，**不会触碰 CST**。
+第一步专门用来抓「调用方式错误导致指令恒为空」这类回归——只做替换的话测试会照样通过。
+`test/test-controls.cjs`、`test/test-ui.cjs` 仍覆盖纯显示层，三者互不替代。
+## 运行引擎单测（0.3.0 新增）
+
+`test/test-runhost.cjs` —— 用 `test/fixtures/fake-dsh.cjs` 冒充 headless，
+**不依赖模型、不依赖 DSH**，17 条断言覆盖：
+
+| 组 | 断言 |
+| --- | --- |
+| 鉴权 | 缺 token → 403；错 token → 403；`/runs` 缺 token → 403 |
+| 并发门 | 上限 1 时首个 200、第二个 429 且带 `cap` |
+| 事件流 | 收齐 `done` / `tool` / `assistant`；`done.exitCode === 0` |
+| 断线续传 | `Last-Event-ID: 2` 只补发 `seq > 2`，且仍能到 `done` |
+| 取消 | 挂起子进程被终止，状态不再 `running` |
+| 边界 | 未知 runId → 404 |
+
+```powershell
+node test\test-runhost.cjs
+```
+
+`fake-dsh.cjs` 用 `FAKE_DSH_HANG=1` 控制是否挂起，供取消用例使用。

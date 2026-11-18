@@ -58,7 +58,7 @@ dsh web
 | 重启后内容一致 | 再次比对 SHA256 | ✅ 仍为 `5BBA26E9…`，逐字节一致 |
 | 重启后处理器生效 | `POST /antenna-optimizer` | ✅ HTTP 405 |
 
-> 重启验证脚本：[`tools/restart-verify.ps1`](../../tools/restart-verify.ps1)。
+> 重启验证脚本：[`tools/restart-web.ps1`](../../tools/restart-web.ps1)。
 > （一次性验证日志含本机 PID 与路径，留在本地开发仓库、不入库，故此处不链接。）
 > 该脚本经 WMI 分离启动（父进程 `WmiPrvSE`），所以宿主 DSH 被杀掉也不会连带
 > 杀死它；验证失败时会从 `_backup_*` 还原 profile 配置并再重启一次。
@@ -84,7 +84,7 @@ dsh web
 | 产品名会过期 | 静态副本不会自更新；被删掉的那份仍写着 1.x 的名字 `AI Agent End-to-End Antenna Design` |
 | 会掩盖插件故障 | 插件路由坏掉时静态页照样能打开，故障被藏起来 |
 | 升级即消失 | 写在 `<dsh-web-frontend>/dist/`（DSH 安装目录），DSH 升级或重装会被整体清空 |
-| 验证不覆盖 | [`tools/restart-verify.ps1`](../../tools/restart-verify.ps1) 只断言插件路由与别名；静态地址**返回 404 才是预期** |
+| 验证不覆盖 | [`tools/restart-web.ps1`](../../tools/restart-web.ps1) 只断言插件路由与别名；静态地址**返回 404 才是预期** |
 
 **插件行挂不上、又必须先看一眼界面时：** 用浏览器直接打开 `plugin/panel.html`
 （`file://`）。界面照常渲染，但依赖同源的能力（启动仿真、目录选择器、实时订阅、

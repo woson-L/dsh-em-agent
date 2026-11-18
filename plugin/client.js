@@ -24,7 +24,9 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
 
     /** 与宿主 index.js 的 DEFAULT_ROUTE_PATH 保持一致。 */
-    const ROUTE = '/em-agent';
+    const ROUTE = '/em-agent'
+/** 构建戳：改动面板或桥接时递增，iframe 的 src 会带上它，避免长驻窗口继续用旧文档。 */
+const PANEL_BUILD = '0.3.0-20261114-2145';
     /** 与宿主 index.js 的 MARKER_HEADER 保持一致：只有真面板才会带。 */
     const MARKER = 'x-dsh-em-agent';
     const ORIGIN_META = 'dsh-em-agent-origin';
@@ -113,7 +115,14 @@ window.__ModuleLoader__.load({
     /* 探测一次并缓存：HEAD 请求极轻，但没必要每次渲染都发。 */
     let resolved = null;
 
-    async function resolvePanelSrc() {
+    /** 给面板 URL 追加构建戳；宿主对面板响应是 no-store，所以换 src 即换文档。 */
+function withBuildStamp(url) {
+  if (typeof url !== 'string' || url === '') return url
+  const sep = url.indexOf('?') >= 0 ? '&' : '?'
+  return url + sep + 'v=' + encodeURIComponent(PANEL_BUILD)
+}
+
+async function resolvePanelSrc() {
       if (resolved) return resolved;
       try {
         const res = await fetch(ROUTE, {
@@ -450,7 +459,7 @@ window.__ModuleLoader__.load({
             children.push(
               h('iframe', {
                 key: 'frame',
-                src: panel.src,
+                src: withBuildStamp(panel.src),
                 title: 'DSH EM Agent 控制台',
                 style: frameStyle,
               }),

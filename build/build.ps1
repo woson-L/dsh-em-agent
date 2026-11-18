@@ -3484,6 +3484,843 @@ $new = Apply-Patch $new @'
   const ws = new WebSocket(wsProtocol + "//" + wsHost + REMOTE_MUX_PATH);
 '@ 'P71 事件流地址用注入 origin'
 
+# --- 运行记录：气泡 → 日志行（2026-11-05，改版意见书「日志即界面」）---
+$new = Apply-Patch $new @'
+function appendChatMsg(role, text) {
+  const view = document.getElementById("chatView");
+  if (!text) return;
+  const div = document.createElement("div");
+  div.className = "chat-msg " + role;
+  const label = document.createElement("div"); label.className = "chat-label";
+  label.textContent = role === "user" ? "我" : "大模型";
+  const body = document.createElement("div"); body.className = "chat-body"; body.textContent = text;
+  div.appendChild(label); div.appendChild(body);
+  view.appendChild(div);
+  view.scrollTop = view.scrollHeight;
+}
+function appendChatChunk(text) {
+  const view = document.getElementById("chatView");
+  const last = view.lastElementChild;
+  if (last && last.classList.contains("chat-msg") && last.classList.contains("assistant")) {
+    const body = last.querySelector(".chat-body");
+    if (body) {
+      body.textContent += text;
+      view.scrollTop = view.scrollHeight;
+      routeBlockDataFromText(body.textContent);
+      return;
+    }
+  }
+  appendChatMsg("assistant", text);
+  routeBlockDataFromText(text);
+}
+'@ @'
+function appendChatMsg(role, text) {
+  const view = document.getElementById("chatView");
+  if (!text) return;
+  const ph = document.getElementById("chatEmpty");
+  if (ph) ph.remove();
+  const row = document.createElement("div");
+  row.className = "log-row " + role;
+  const t = document.createElement("time");
+  t.textContent = nowStamp();
+  const who = document.createElement("span");
+  who.className = "log-who";
+  who.textContent = role === "user" ? "我" : "模型";
+  const body = document.createElement("div");
+  body.className = "log-text";
+  body.textContent = text;
+  row.appendChild(t);
+  row.appendChild(who);
+  row.appendChild(body);
+  view.appendChild(row);
+  view.scrollTop = view.scrollHeight;
+}
+
+function appendChatChunk(text) {
+  const view = document.getElementById("chatView");
+  const last = view.lastElementChild;
+  if (last && last.classList.contains("log-row") && last.classList.contains("assistant")) {
+    const body = last.querySelector(".log-text");
+    if (body) {
+      body.textContent += text;
+      view.scrollTop = view.scrollHeight;
+      routeBlockDataFromText(body.textContent);
+      return;
+    }
+  }
+  appendChatMsg("assistant", text);
+  routeBlockDataFromText(text);
+}
+'@ 'P72 运行记录改为日志行'
+$new = Apply-Patch $new @'
+<div class="chat-view" id="chatView"><div class="chat-msg assistant"><div class="chat-body">尚未启动。配置左栏 → 启动仿真，此处实时显示大模型输出与阶段。</div></div></div>
+'@ @'
+<div class="chat-view" id="chatView"><div class="log-empty" id="chatEmpty">尚未启动。配置左栏 → 启动仿真，此处按时间显示模型输出、工具调用与阶段。</div></div>
+'@ 'P73 运行记录空态'
+
+
+$new = Apply-Patch $new @'
+三频段可同时配置；每频段独立 S11 阈值与可选谐振点深度约束（启用后卡片橙色标识）。
+'@ @'
+三频段可同时配置；每频段独立 S11 阈值与可选谐振点深度约束。
+'@ 'P74 频段说明去掉橙色标识'
+
+
+# --- 按 preview 对齐：运行记录 / 追加指令 / 首次配置（2026-11-05）---
+$new = Apply-Patch $new @'
+<h2>事件流 / 状态可视化</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <span class="pill">阶段：<b id="evPhase">—</b></span>
+          <span class="pill">对话轮次：<b id="evTools">0</b></span>
+          <span class="pill">事件 seq：<b id="evSeq">0</b></span>
+        </div>
+        
+'@ @'
+<h2>运行记录 <span class="h2-meta">对话轮次 <b id="evTools">0</b></span></h2>
+        <div class="log-bar">
+          <span class="pill phase-pill">阶段：<b id="evPhase">—</b></span>
+          <div class="log-filters" role="group" aria-label="按来源筛选">
+            <button type="button" class="chip" data-filter="all" aria-pressed="true">全部</button>
+            <button type="button" class="chip" data-filter="model" aria-pressed="false">模型</button>
+            <button type="button" class="chip" data-filter="tool" aria-pressed="false">工具</button>
+            <button type="button" class="chip" data-filter="panel" aria-pressed="false">面板</button>
+          </div>
+          <span class="log-spacer"></span>
+          <label class="follow"><input type="checkbox" id="followTail" checked> 跟随最新</label>
+          <details class="seq-detail"><summary>诊断</summary><div>事件 seq：<b id="evSeq">0</b></div></details>
+        </div>
+        
+'@ 'P75 运行记录表头：筛选 / 跟随 / 诊断'
+$new = Apply-Patch $new @'
+<h2>对话输入 <span class="tag">同会话内继续 · Enter 发送 / Shift+Enter 换行</span></h2>
+        <div style="display:flex;gap:8px;align-items:stretch;">
+          <textarea id="chatInput" style="flex:1 1 auto;min-height:56px;" spellcheck="false" placeholder="输入要发送给大模型的内容（可多行）…"></textarea>
+          <button class="btn primary" id="btnChatSend" style="align-self:stretch;">发送</button>
+        </div>
+        <div style="margin-top:8px;font-size:12.5px;color:var(--text-sub);">发送采用队列模式：内容会追加给大模型，不会打断正在运行的预检或迭代。</div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+          <button class="btn" id="btnCopy">复制指令</button>
+          <button class="btn" id="btnClearChat">清空对话</button>
+          <button class="btn" id="btnGenerateOnly">仅生成指令</button>
+        </div>
+      
+'@ @'
+<h2>追加指令 <span class="tag">同会话内继续 · Enter 发送 / Shift+Enter 换行</span></h2>
+        <div class="cmd">
+          <div class="cmd-tools">
+            <button type="button" class="link" id="btnCopy">复制指令</button>
+            <button type="button" class="link" id="btnGenerateOnly">仅生成指令</button>
+            <span class="cmd-spacer"></span>
+            <button type="button" class="link" id="btnClearChat">清空记录</button>
+          </div>
+          <div class="cmd-grip" id="inputResize" role="separator" aria-orientation="horizontal" tabindex="0" aria-label="拖动调整输入高度"><span>拖动调整输入高度</span></div>
+          <div class="cmd-bar">
+            <span class="cmd-prompt" aria-hidden="true">›</span>
+            <textarea id="chatInput" rows="3" spellcheck="false" placeholder="给模型追加指令…（Enter 发送 / Shift+Enter 换行）"></textarea>
+            <button type="button" class="btn primary" id="btnChatSend">发送</button>
+          </div>
+          <p class="cmd-hint">发送采用队列模式：内容会追加给大模型，不会打断正在运行的预检或迭代。</p>
+        </div>
+      
+'@ 'P76 追加指令：命令条 + 拖高把手'
+$new = Apply-Patch $new @'
+  view.appendChild(row);
+  view.scrollTop = view.scrollHeight;
+}
+'@ @'
+  view.appendChild(row);
+  const follow = document.getElementById("followTail");
+  if (!follow || follow.checked) view.scrollTop = view.scrollHeight;
+}
+'@ 'P77 跟随最新'
+$new = Apply-Patch $new @'
+function appendChatMsg(role, text) {
+'@ @'
+function initRunLog() {
+  const view = document.getElementById("chatView");
+  if (!view) return;
+  document.querySelectorAll(".log-filters .chip").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      document.querySelectorAll(".log-filters .chip").forEach(function (c) {
+        c.setAttribute("aria-pressed", String(c === chip));
+      });
+      view.dataset.filter = chip.dataset.filter;
+    });
+  });
+  const grip = document.getElementById("inputResize");
+  const input = document.getElementById("chatInput");
+  if (grip && input) {
+    var startY = 0, startH = 0;
+    grip.addEventListener("pointerdown", function (e) {
+      startY = e.clientY;
+      startH = input.getBoundingClientRect().height;
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+      e.preventDefault();
+    });
+    function onMove(e) {
+      var h = Math.min(320, Math.max(76, startH + (startY - e.clientY)));
+      input.style.height = h + "px";
+    }
+    function onUp() {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+    }
+  }
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initRunLog);
+} else {
+  initRunLog();
+}
+
+function appendChatMsg(role, text) {
+'@ 'P78 运行记录交互初始化'
+
+
+# --- UB 显示层：频段单一数据源 / 工具日志 / 显示偏好 / 扩展（2026-11-14）---
+$new = Apply-Patch $new @'
+const active = BANDS.filter((b) => bandState[b.key] && bandState[b.key].on);
+  if (!active.length && chartData.length === 0
+'@ @'
+const active = allBands().filter((b) => bandState[b.key] && bandState[b.key].on);
+  if (!active.length && chartData.length === 0
+'@ 'P141 图表用统一频段模型'
+$new = Apply-Patch $new @'
+const active = BANDS.filter((b) => bandState[b.key] && bandState[b.key].on);
+  const iterations = evToolCount
+'@ @'
+const active = allBands().filter((b) => bandState[b.key] && bandState[b.key].on);
+  const iterations = evToolCount
+'@ 'P142 结果表用统一频段模型'
+$new = Apply-Patch $new @'
+cb.addEventListener("change", () => {
+      st.on = cb.checked;
+      if (cb.checked) bandEnabled.add(b.id); else bandEnabled.delete(b.id);
+      head.classList.toggle("checked", cb.checked);
+    });
+'@ @'
+cb.addEventListener("change", () => {
+      st.on = cb.checked;
+      if (cb.checked) bandEnabled.add(b.id); else bandEnabled.delete(b.id);
+      head.classList.toggle("checked", cb.checked); drawChart(); updateResultTable();
+    });
+'@ 'P143 频段开关重绘图表与表'
+$new = Apply-Patch $new @'
+const syncTh = () => { st.threshold = thSel.value; thCustom.hidden = thSel.value !== "custom"; };
+'@ @'
+const syncTh = () => { st.threshold = thSel.value; thCustom.hidden = thSel.value !== "custom"; drawChart(); updateResultTable(); };
+'@ 'P144 阈值变化重绘图表与表'
+$new = Apply-Patch $new @'
+} else if (event.type === "step/end") {
+'@ @'
+} else if (event.type === "tool/result") { appendToolRow(event.data); } else if (event.type === "step/end") {
+'@ 'P145 日志渲染工具结果'
+$new = Apply-Patch $new @'
+const body = document.createElement("div");
+  body.className = "log-text";
+  body.textContent = text;
+'@ @'
+const body = document.createElement("div");
+  body.className = "log-text";
+  body.textContent = text; if (text.length > 600) { body.classList.add("log-text--clamped"); body.title = "点击展开全文"; body.addEventListener("click", () => body.classList.toggle("log-text--clamped")); }
+'@ 'P146 长消息折叠'
+$new = Apply-Patch $new @'
+<main class="main" id="mainContent">
+'@ @'
+<div class="ub-bar" id="ubBar">
+  <label class="ub-field">布局
+    <select id="ubLayout"><option value="split">配置 + 结果</option><option value="focus">专注结果</option></select>
+  </label>
+  <label class="ub-field">比例
+    <select id="ubRatio"><option value="40%">40 / 60</option><option value="45%">45 / 55</option><option value="50%">50 / 50</option></select>
+  </label>
+  <label class="ub-field">密度
+    <select id="ubDensity"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select>
+  </label>
+  <label class="ub-field">主题
+    <select id="ubTheme"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select>
+  </label>
+  <span class="ub-spacer"></span>
+  <button type="button" class="ub-link" id="btnHelp">说明</button>
+</div>
+
+<main class="main" id="mainContent">
+'@ 'P147 显示偏好条'
+$new = Apply-Patch $new @'
+</body>
+'@ @'
+<div class="ub-help" id="helpOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="ub-help__panel">
+    <header class="ub-help__head">
+      <h2 id="helpTitle">说明</h2>
+      <button type="button" class="ub-help__close" id="helpClose" aria-label="关闭说明">×</button>
+    </header>
+    <div class="ub-help__body">
+      <h3>工程与副本</h3>
+      <p>源 CST 工程只读。启动仿真时在任务工作目录下创建 <code>cst_runs/&lt;run&gt;_&lt;日期&gt;/</code> 工作副本，全部操作在工作副本上进行，不覆盖源工程。</p>
+      <h3>频段与指标</h3>
+      <p>三个预设频段用于固定图表区间与基准，不可删除，只能启用或禁用。启用谐振后，为该频点追加一条 S11 深度约束。</p>
+      <h3>CST 接入</h3>
+      <p>所有 CST 操作默认通过 cst-studio-suite MCP 驱动 CST Studio Suite 2026；未安装该 MCP 时页面仍可配置与生成指令，但无法执行仿真。</p>
+      <h3>运行记录</h3>
+      <p>按事件到达顺序显示用户消息、模型输出、工具结果与阶段变化。筛选只影响显示，不丢弃原始事件；清空只清本地显示，不删除会话记录。</p>
+      <h3>显示偏好</h3>
+      <p>布局、比例、密度与主题只影响显示，与仿真配置分开保存，不随任务指令下发。</p>
+    </div>
+  </div>
+</div>
+
+<section class="ub-ext" id="ubExtension">
+  <div class="ub-ext__head">
+    <h2>扩展</h2>
+    <span class="ub-ext__hint">可选分析模块，按需加载，不影响仿真配置</span>
+    <label class="ub-check"><input type="checkbox" id="ubShowExample"> 效率分析（示例）</label>
+  </div>
+  <div class="ub-ext__slot" id="ubExtensionSlot">
+    <p class="ub-ext__empty">尚未加载模块。勾选上方示例模块可验证挂载与卸载。</p>
+  </div>
+</section>
+
+</body>
+'@ 'P148 说明面板与扩展区'
+$new = Apply-Patch $new @'
+</script>
+'@ @'
+
+/* ============================================================================
+   UB 显示层：显示偏好 / 说明面板 / 扩展模块 / 日志交互（2026-11-14）
+   - 只读写显示状态，不进入仿真配置与任务指令
+   - 扩展模块走注册表，具备 mount / unmount(dispose) 生命周期
+   ========================================================================== */
+function ubInit() {
+  "use strict";
+
+  var DISPLAY_KEY = "dsh-em-agent-display-v1";
+  var root = document.documentElement;
+  var body = document.body;
+
+  var prefs = { theme: "auto", density: "comfortable", layout: "split", ratio: "40%" };
+  try {
+    var saved = JSON.parse(localStorage.getItem(DISPLAY_KEY) || "{}");
+    if (saved && typeof saved === "object") {
+      ["theme", "density", "layout", "ratio"].forEach(function (k) {
+        if (typeof saved[k] === "string") prefs[k] = saved[k];
+      });
+    }
+  } catch (e) { /* 存档损坏时按默认值处理 */ }
+
+  function savePrefs() {
+    try { localStorage.setItem(DISPLAY_KEY, JSON.stringify(prefs)); } catch (e) {}
+  }
+
+  function applyPrefs() {
+    if (prefs.theme === "auto") delete root.dataset.theme;
+    else root.dataset.theme = prefs.theme;
+    body.dataset.density = prefs.density;
+    body.dataset.layout = prefs.layout;
+    root.style.setProperty("--config-width", prefs.ratio);
+  }
+  applyPrefs();
+
+  function bindSelect(id, key) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.value = prefs[key];
+    el.addEventListener("change", function () {
+      prefs[key] = el.value;
+      applyPrefs();
+      savePrefs();
+    });
+  }
+  bindSelect("ubLayout", "layout");
+  bindSelect("ubRatio", "ratio");
+  bindSelect("ubDensity", "density");
+  bindSelect("ubTheme", "theme");
+
+  /* ---------- 焦点工具 ---------- */
+  function focusables(host) {
+    return Array.prototype.slice.call(host.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter(function (n) { return !n.disabled && n.offsetParent !== null; });
+  }
+
+  function trapTab(host, e) {
+    var f = focusables(host);
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+
+  /* ---------- 说明面板 ---------- */
+  var help = document.getElementById("helpOverlay");
+  var helpBtn = document.getElementById("btnHelp");
+  var helpClose = document.getElementById("helpClose");
+  var helpLast = null;
+
+  function openHelp() {
+    if (!help) return;
+    helpLast = document.activeElement;
+    help.hidden = false;
+    body.classList.add("ub-modal-open");
+    var f = focusables(help);
+    (f[0] || help).focus();
+  }
+
+  function closeHelp() {
+    if (!help || help.hidden) return;
+    help.hidden = true;
+    body.classList.remove("ub-modal-open");
+    if (helpLast && typeof helpLast.focus === "function") helpLast.focus();
+    helpLast = null;
+  }
+
+  if (helpBtn) helpBtn.addEventListener("click", openHelp);
+  if (helpClose) helpClose.addEventListener("click", closeHelp);
+  if (help) {
+    help.addEventListener("mousedown", function (e) { if (e.target === help) closeHelp(); });
+    document.addEventListener("keydown", function (e) {
+      if (help.hidden) return;
+      if (e.key === "Escape") { e.preventDefault(); closeHelp(); return; }
+      if (e.key === "Tab") trapTab(help, e);
+    });
+  }
+
+  /* ---------- 首次配置弹窗：焦点进入 / 恢复 / 循环 ---------- */
+  var setup = document.getElementById("setupOverlay");
+  if (setup) {
+    var setupLast = null;
+    function syncSetupFocus() {
+      if (!setup.hidden) {
+        if (setupLast === null) {
+          setupLast = document.activeElement;
+          body.classList.add("ub-modal-open");
+          var f = focusables(setup);
+          (f[0] || setup).focus();
+        }
+      } else if (setupLast !== null) {
+        body.classList.remove("ub-modal-open");
+        if (typeof setupLast.focus === "function") setupLast.focus();
+        setupLast = null;
+      }
+    }
+    if (window.MutationObserver) {
+      new MutationObserver(syncSetupFocus).observe(setup, { attributes: true, attributeFilter: ["hidden"] });
+    }
+    document.addEventListener("keydown", function (e) {
+      if (setup.hidden || e.key !== "Tab") return;
+      trapTab(setup, e);
+    });
+    syncSetupFocus();
+  }
+
+  /* ---------- 扩展模块 ---------- */
+  var registry = new Map();
+  var slot = document.getElementById("ubExtensionSlot");
+  var emptyHint = slot ? slot.querySelector(".ub-ext__empty") : null;
+
+  function register(mod) {
+    if (!mod || typeof mod !== "object") throw new Error("模块必须为对象");
+    if (!/^[a-z][a-z0-9-]*$/.test(String(mod.id || ""))) throw new Error("模块 id 非法");
+    if (typeof mod.render !== "function") throw new Error("模块缺少 render");
+    if (registry.has(mod.id)) throw new Error("模块 id 重复");
+    registry.set(mod.id, mod);
+    return mod.id;
+  }
+
+  function show(id, visible) {
+    var mod = registry.get(id);
+    if (!mod) throw new Error("未注册的模块");
+    var host = document.getElementById("ub-module-" + id);
+    if (!visible) {
+      if (host) {
+        try { if (typeof mod.dispose === "function") mod.dispose(host); } catch (e) {}
+        host.remove();
+      }
+      if (slot && !slot.querySelector(".ub-module") && emptyHint) emptyHint.hidden = false;
+      return false;
+    }
+    if (host) return false;
+    if (emptyHint) emptyHint.hidden = true;
+    host = document.createElement("article");
+    host.className = "ub-module";
+    host.id = "ub-module-" + id;
+    mod.render(host);
+    if (slot) slot.appendChild(host);
+    return true;
+  }
+
+  window.UBExtensions = Object.freeze({
+    register: register,
+    show: show,
+    list: function () { return Array.from(registry.keys()); }
+  });
+
+  register({
+    id: "efficiency",
+    render: function (host) {
+      var h = document.createElement("h3");
+      h.textContent = "效率分析";
+      var p = document.createElement("p");
+      p.textContent = "示例模块：等待数据接入。接入后由适配器提供效率、阈值与频段统计，本模块不生成任何数值。";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ub-link";
+      btn.textContent = "卸载";
+      btn.addEventListener("click", function () {
+        show("efficiency", false);
+        var cb = document.getElementById("ubShowExample");
+        if (cb) cb.checked = false;
+      });
+      host.append(h, p, btn);
+    },
+    dispose: function (host) { host.textContent = ""; }
+  });
+
+  var exampleToggle = document.getElementById("ubShowExample");
+  if (exampleToggle) {
+    exampleToggle.addEventListener("change", function () {
+      try { show("efficiency", exampleToggle.checked); } catch (e) { exampleToggle.checked = false; }
+    });
+  }
+
+  /* ---------- 运行记录：工具行 / 跟随最新 / 复制 ---------- */
+  var view = document.getElementById("chatView");
+  var follow = document.getElementById("followTail");
+  var pausedByUser = false;
+
+  function toolLabel(data) {
+    if (data && typeof data === "object") {
+      var cands = [data.name, data.toolName, data.tool, data.title,
+        data.call && data.call.name, data.result && data.result.name];
+      for (var i = 0; i < cands.length; i++) {
+        if (typeof cands[i] === "string" && cands[i].trim()) return cands[i].trim();
+      }
+    }
+    return "工具结果";
+  }
+
+  function payloadText(data) {
+    var s;
+    try { s = typeof data === "string" ? data : JSON.stringify(data, null, 2); }
+    catch (e) { s = String(data); }
+    return s.length > 4000 ? s.slice(0, 4000) + "\n…" : s;
+  }
+
+  window.appendToolRow = function (data) {
+    if (!view) return;
+    var empty = document.getElementById("chatEmpty");
+    if (empty) empty.remove();
+    var row = document.createElement("div");
+    row.className = "log-row tool";
+    var t = document.createElement("time");
+    t.textContent = (typeof nowStamp === "function") ? nowStamp() : "";
+    var who = document.createElement("span");
+    who.className = "log-who";
+    who.textContent = "工具";
+    var bodyEl = document.createElement("div");
+    bodyEl.className = "log-text";
+    var head = document.createElement("div");
+    head.className = "tool-head";
+    var name = document.createElement("span");
+    name.className = "tool-name";
+    name.textContent = toolLabel(data);
+    var toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "ub-link tool-toggle";
+    toggle.textContent = "详情";
+    var pre = document.createElement("pre");
+    pre.className = "tool-payload";
+    pre.hidden = true;
+    pre.textContent = payloadText(data);
+    toggle.addEventListener("click", function () {
+      pre.hidden = !pre.hidden;
+      toggle.textContent = pre.hidden ? "详情" : "收起";
+    });
+    head.append(name, toggle);
+    bodyEl.append(head, pre);
+    row.append(t, who, bodyEl);
+    view.appendChild(row);
+    if (!follow || follow.checked) view.scrollTop = view.scrollHeight;
+  };
+
+  if (view && follow) {
+    view.addEventListener("scroll", function () {
+      var atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 24;
+      if (!atBottom && follow.checked) { follow.checked = false; pausedByUser = true; }
+      if (atBottom && pausedByUser) { follow.checked = true; pausedByUser = false; }
+    });
+  }
+
+  var tools = document.querySelector(".cmd-tools");
+  if (tools && view) {
+    var copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "ub-link";
+    copyBtn.id = "btnCopyLog";
+    copyBtn.textContent = "复制记录";
+    copyBtn.addEventListener("click", function () {
+      var text = Array.prototype.map.call(view.querySelectorAll(".log-row"), function (r) {
+        return r.innerText.replace(/\s+$/g, "");
+      }).join("\n");
+      if (typeof copyToClipboard === "function") copyToClipboard(text);
+    });
+    var gen = tools.querySelector("#btnGenerateOnly");
+    tools.insertBefore(copyBtn, gen || null);
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", ubInit);
+} else {
+  ubInit();
+}
+
+</script>
+'@ 'P149 UB 显示层脚本'
+
+
+# --- 小字清理：常驻解释移入说明面板（2026-11-14）---
+$new = Apply-Patch $new @'
+<div class="desc">源 CST 工程只读，全部操作在工作副本上进行（不可覆盖源工程）。</div>
+'@ @'
+<div class="desc">源工程只读，改动写入工作副本。</div>
+'@ 'P150 工程规则只留一句'
+$new = Apply-Patch $new @'
+<div class="desc">三频段可同时配置；每频段独立 S11 阈值与可选谐振点深度约束。</div>
+'@ @'
+<div class="desc ub-removed" data-ub="bands"></div>
+'@ 'P151 移除频段长说明'
+$new = Apply-Patch $new @'
+<div class="desc">与普通 S11 目标不同视觉标识（橙色）；按需启用，均为可选；全部显式字段化，不隐藏在自然语言中。</div>
+'@ @'
+<div class="desc ub-removed" data-ub="special"></div>
+'@ 'P152 移除特殊任务长说明'
+$new = Apply-Patch $new @'
+<div class="desc">补充要求写入指令"用户自定义指令"段；性能指标已全部显式字段化，不隐藏在自然语言中。</div>
+'@ @'
+<div class="desc ub-removed" data-ub="commands"></div>
+'@ 'P153 移除命令长说明'
+$new = Apply-Patch $new @'
+<div class="desc">S11 最优数据曲线（频率–S11，运行中实时更新；数据为 DSH 会话文本启发式采集，供监控参考，最终以结果导出与审计为准）。</div>
+'@ @'
+<div class="desc ub-removed" data-ub="monitor"></div>
+'@ 'P154 移除监控长说明'
+$new = Apply-Patch $new @'
+<div class="f-help" id="browseHelp">同源模式：Win10 本机目录选择器（DSH host.pickDirectory）；file:// 下为手动输入辅助。</div>
+'@ @'
+<div class="f-help ub-removed" id="browseHelp" data-ub="browse"></div>
+'@ 'P155 移除目录选择说明'
+$new = Apply-Patch $new @'
+<div class="f-help" id="scanHint">“扫描 .cst”：弹出本机目录选择器，列出所选目录下的真实 .cst 文件；选择后自动按“目标工程路径 + 相对路径”拼接为完整路径。也可点击“选择文件…”直接选 .cst 文件。</div>
+'@ @'
+<div class="f-help ub-removed" id="scanHint" data-ub="scan"></div>
+'@ 'P156 移除扫描说明'
+$new = Apply-Patch $new @'
+<div class="f-help">新建会话工作目录；工作副本创建于其下 <code>cst_runs/&lt;run&gt;_&lt;日期&gt;/</code>。</div>
+'@ @'
+<div class="f-help ub-removed" data-ub="cwd"></div>
+'@ 'P157 移除工作目录说明'
+$new = Apply-Patch $new @'
+<div class="f-help">天线所在组件/零件路径。<b>请与 CST 工程树中的名称完全一致</b>。</div>
+'@ @'
+<div class="f-help"><b>须与 CST 工程树一致</b></div>
+'@ 'P158 缩短天线提示'
+$new = Apply-Patch $new @'
+<div class="f-help">基板所在组件路径。<b>请与 CST 工程树中的名称完全一致</b>。</div>
+'@ @'
+<div class="f-help"><b>须与 CST 工程树一致</b></div>
+'@ 'P159 缩短基板提示'
+$new = Apply-Patch $new @'
+<p class="cmd-hint">发送采用队列模式：内容会追加给大模型，不会打断正在运行的预检或迭代。</p>
+'@ @'
+<p class="cmd-hint ub-removed" data-ub="queue"></p>
+'@ 'P160 移除队列说明'
+$new = Apply-Patch $new @'
+<section class="card" id="constraintCard">
+'@ @'
+<section class="card" id="constraintCard" hidden>
+'@ 'P161 隐藏执行方式卡'
+$new = Apply-Patch $new @'
+<span class="tag">必需</span>
+'@ @'
+<span class="tag ub-removed" data-ub="required"></span>
+'@ 'P162 去除必需标签'
+$new = Apply-Patch $new @'
+<span class="tag">三频段独立</span>
+'@ @'
+<span class="tag ub-removed" data-ub="bands-tag"></span>
+'@ 'P163 去除三频段标签'
+$new = Apply-Patch $new @'
+<span class="tag spec">特殊约束</span>
+'@ @'
+<span class="tag ub-removed" data-ub="spec-tag"></span>
+'@ 'P164 去除特殊约束标签'
+$new = Apply-Patch $new @'
+<span class="tag">最近 5 次</span>
+'@ @'
+<span class="tag ub-removed" data-ub="recent-tag"></span>
+'@ 'P165 去除最近标签'
+$new = Apply-Patch $new @'
+<span class="tag">本机环境</span>
+'@ @'
+<span class="tag ub-removed" data-ub="env-tag"></span>
+'@ 'P166 去除本机环境标签'
+$new = Apply-Patch $new @'
+<div class="desc">
+        填写本机的 CST 安装路径与 MCP 地址。这些值会写入任务指令，模型据此调用 MCP 与 CST；
+        只保存在本机浏览器（localStorage），不会写回源码文件。可在顶栏右上角的<b>齿轮按钮</b>中随时修改。
+      </div>
+'@ @'
+<div class="desc">本机 CST 与 MCP 地址 · 只保存在本浏览器，不写回源码。</div>
+'@ 'P167 首次配置一句话说明'
+
+
+# --- 小字清理：页面编辑器说明移入帮助（2026-11-14）---
+$new = Apply-Patch $new @'
+<div class="desc">
+      用 HTML 自由新增内容区块，按需扩展页面功能。区块保存在<b>本机浏览器（localStorage）</b>，不会写回页面源码文件；
+      可用「导出 JSON」分享给他人导入。
+    </div>
+'@ @'
+<div class="desc ub-removed" data-ub="editor"></div>
+'@ 'P168 移除页面编辑长说明'
+$new = Apply-Patch $new @'
+<p>布局、比例、密度与主题只影响显示，与仿真配置分开保存，不随任务指令下发。</p>
+'@ @'
+<p>布局、比例、密度与主题只影响显示，与仿真配置分开保存，不随任务指令下发。</p>
+      <h3>页面编辑器</h3>
+      <p>自定义区块以 HTML 保存在本机浏览器，可导出 / 导入 JSON；新增区块默认允许执行脚本，取消勾选后已注册的计时器与事件监听需要刷新页面才会停止。</p>
+'@ 'P169 帮助补页面编辑器'
+
+
+# --- 说明面板：补队列发送说明（2026-11-14）---
+$new = Apply-Patch $new @'
+<p>按事件到达顺序显示用户消息、模型输出、工具结果与阶段变化。筛选只影响显示，不丢弃原始事件；清空只清本地显示，不删除会话记录。</p>
+'@ @'
+<p>按事件到达顺序显示用户消息、模型输出、工具结果与阶段变化。筛选只影响显示，不丢弃原始事件；清空只清本地显示，不删除会话记录。追加指令以队列方式发送，不会打断正在运行的预检或迭代。</p>
+'@ 'P170 帮助补队列说明'
+
+# --- 运行设置条：MCP 包目录 + 审批策略（2026-11-14）---
+# 运行期设置走 DOM，不再由 run-bridge.js 运行时创建；bridge 只负责取值与行为。
+$new = Apply-Patch $new @'
+<div class="chat-view" id="chatView">
+'@ @'
+<div class="em-runbar" id="emRunBar">
+  <label class="em-runbar__field"><span class="em-runbar__label">MCP 包目录</span>
+    <input type="text" id="emRunMcp" autocomplete="off" spellcheck="false" placeholder="如 C:\CST-MCP；留空则不注册 CST 工具"></label>
+  <label class="em-runbar__field"><span class="em-runbar__label">审批</span>
+    <select id="emRunPolicy">
+      <option value="workspace-write">仅工作区可写</option>
+      <option value="danger-full-access">完全访问</option>
+    </select></label>
+  <button type="button" class="ub-link" id="emRunIngest">读取结果</button>
+  <span class="em-runbar__status" id="emRunStatus" role="status" aria-live="polite">桥接未加载</span>
+</div>
+<div class="chat-view" id="chatView">
+'@ 'P171 运行设置条'
+
+# --- 运行桥接委派：面板自己决定走 headless 还是旧路径（2026-11-14）---
+# 锚点必须唯一：带上 isDSHSameOrigin 那一行，避免与其它同形代码块混淆。
+$new = Apply-Patch $new @'
+  warnings.forEach((w) => toast(w, "warn", 4200));
+  hideErrors();
+
+  if (!isDSHSameOrigin()) {
+'@ @'
+  warnings.forEach((w) => toast(w, "warn", 4200));
+  hideErrors();
+
+  // 运行桥接存在时由宿主以 headless 执行；不存在才走原来的 DSH 会话路径。
+  if (typeof window.__emAgentStartRun === "function") { await window.__emAgentStartRun(); return; }
+
+  if (!isDSHSameOrigin()) {
+'@ 'P172 启动委派给运行桥接'
+
+# --- 结构化结果注入：宿主读 evidence 后调用，绕开文本正则猜测（2026-11-14）---
+$new = Apply-Patch $new @'
+function resetRunMonitor() {
+'@ @'
+/* 结构化结果注入（0.3.0）：宿主从 evidence/ 读到的点直接进图表，
+   复用既有 drawChart / updateResultTable / KPI，不另建渲染路径。 */
+window.__emAgentApplyResults = function (payload) {
+  if (!payload || !Array.isArray(payload.rounds) || !payload.rounds.length) return 0;
+  resetRunMonitor();
+  let applied = 0;
+  payload.rounds.forEach(function (r) {
+    const round = Number(r.round);
+    if (isFinite(round)) updateIterationKPI(round);
+    (r.points || []).forEach(function (p) {
+      const f = Number(p[0]), db = Number(p[1]);
+      if (isFinite(f) && isFinite(db)) { chartData.push({ f: f, db: db, round: isFinite(round) ? round : 0 }); applied++; }
+    });
+  });
+  if (!applied) return 0;
+  if (typeof payload.worst === "number" && isFinite(payload.worst)) worstS11 = payload.worst;
+  if (typeof payload.best === "number" && isFinite(payload.best)) bestS11 = payload.best;
+  const _w = document.getElementById("kWorst"), _b = document.getElementById("kBest");
+  if (_w && worstS11 !== null) { _w.textContent = worstS11.toFixed(2) + " dB"; _w.className = "k-value warn"; }
+  if (_b && bestS11 !== null) { _b.textContent = bestS11.toFixed(2) + " dB"; _b.className = "k-value ok"; }
+  drawChart();
+  updateResultTable();
+  return applied;
+};
+
+function resetRunMonitor() {
+'@ 'P173 结构化结果注入'
+
+# --- 追加轮次（协议块实时回传用，不重置已有曲线）---
+$new = Apply-Patch $new @'
+function resetRunMonitor() {
+'@ @'
+/* 追加一轮（协议块实时回传）：不清空已有轮次，画完即刷新。 */
+window.__emAgentAppendRound = function (payload) {
+  if (!payload || !Array.isArray(payload.points) || !payload.points.length) return 0;
+  const round = Number(payload.round);
+  if (isFinite(round)) updateIterationKPI(round);
+  let applied = 0;
+  payload.points.forEach(function (p) {
+    const f = Number(p[0]), db = Number(p[1]);
+    if (isFinite(f) && isFinite(db)) { chartData.push({ f: f, db: db, round: isFinite(round) ? round : 0 }); applied++; }
+  });
+  if (!applied) return 0;
+  drawChart();
+  updateResultTable();
+  return applied;
+};
+
+function resetRunMonitor() {
+'@ 'P174 追加轮次'
+
+# --- 指令里固定加入 S11 回传协议（不依赖页面是否配置自定义区块）---
+$new = Apply-Patch $new @'
+commandsBlock + buildBlockDataProtocol() + "\n";
+'@ @'
+commandsBlock + buildBlockDataProtocol() + buildS11BlockProtocol() + "\n";
+'@ 'P175 指令加入 S11 回传协议'
+
+# --- buildS11BlockProtocol 定义 ---
+$new = Apply-Patch $new @'
+function buildBlockDataProtocol() {
+'@ @'
+/* 每轮 S11 回传协议：与页面是否配置自定义区块无关，始终下发。
+   只要求 15~40 个采样点，避免把 1000 点塞进对话。 */
+function buildS11BlockProtocol() {
+  let s = "\n# 17. S11 曲线回传（每轮必做）\n";
+  s += "每轮仿真拿到 S11 后，输出一个数据块，页面据此实时画曲线：\n";
+  s += "```dsh-block-data\n";
+  s += '{"channel":"s11","round":<轮次整数>,"columns":["频率GHz","S11dB"],"rows":[[5.15,-8.1],[5.5,-8.7],[5.85,-8.36]]}' + "\n";
+  s += "```\n\n";
+  s += "要求：rows 取 15~40 个采样点，覆盖目标频段并包含最差点；数值不带单位；round 必须是本轮真实轮次；JSON 单行合法。\n";
+  return s;
+}
+
+function buildBlockDataProtocol() {
+'@ 'P175b S11 协议生成函数'
+
+
+
 Write-Output "已应用 $($script:patches.Count) 处补丁"
 
 # --- 5. 反向还原校验 ---
@@ -3621,4 +4458,11 @@ $pluginDir = Split-Path $PluginPanel -Parent
 if (Test-Path $pluginDir) {
   Copy-Item -LiteralPath $OutFile -Destination $PluginPanel -Force
   Write-Output "已同步到插件包: plugin\panel.html ($((Get-Item $PluginPanel).Length) 字节)"
+}
+
+# --- 8. 外壳合成（单行顶栏）；见 build/shell.cjs ---
+$shellScript = Join-Path $RepoRoot 'build\shell.cjs'
+if (Test-Path $shellScript) {
+  & node $shellScript
+  if ($LASTEXITCODE -ne 0) { throw '外壳合成失败（见 build/shell.cjs）' }
 }

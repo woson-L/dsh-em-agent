@@ -83,9 +83,9 @@ async function main() {
     processSessionEvent({ type: 'user/message', seq: 9001, time: 0, data: { content: [{ type: 'text', text: 'HELLO_USER' }] } });
     processSessionEvent({ type: 'assistant/message', seq: 9002, time: 0, data: { message: { content: [{ type: 'text', text: 'HELLO_ASSISTANT' }] } } });
     processSessionEvent({ type: 'step/end', seq: 9003, time: 0, data: {} });
-    const msgs = [...view.querySelectorAll('.chat-msg')].map(m => ({
+    const msgs = [...view.querySelectorAll('.log-row')].map(m => ({
       assistant: m.className.indexOf('assistant') >= 0,
-      text: (m.querySelector('.chat-body') || {}).textContent
+      text: (m.querySelector('.log-text') || {}).textContent
     }));
     return {
       count: msgs.length,

@@ -21,6 +21,8 @@
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
+import { createRunHost } from './run-host.js'
 
 /** Cordis 插件名。 */
 export const name = 'dsh-em-agent'
@@ -30,6 +32,10 @@ export const inject = ['webServer']
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PANEL = join(HERE, 'panel.html')
+/** 运行桥接脚本：由宿主注入面板，负责启动/事件流/取消。 */
+const BRIDGE = join(HERE, 'run-bridge.js')
+/** 运行引擎实例（apply 时创建，卸载时释放）。 */
+let runHost = null
 
 /** 默认挂载路径。 */
 export const DEFAULT_ROUTE_PATH = '/em-agent'
@@ -103,7 +109,7 @@ export const Config = {
  *
  * @param {string | null} origin 由 {@link panelOrigin} 算出的真实 origin
  */
-function makeHandler(origin) {
+function makeHandler(origin, file = PANEL) {
   return async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       // RFC 9110 §15.5.6：405 响应必须生成 Allow 头字段
@@ -113,19 +119,24 @@ function makeHandler(origin) {
     }
     let body
     try {
-      body = await readFile(PANEL)
+      body = await readFile(file)
       // 面板自身也需要知道真实 origin：桌面版渲染层是 dsh-app://，它要靠这个
       // meta 把「自定义协议」与「file:// 降级」区分开，并用绝对地址拼事件流的
       // WebSocket（自定义协议下 location.host 不是后端地址）。
       if (typeof origin === 'string' && origin !== '') {
-        body = Buffer.from(injectOriginMeta(body.toString('utf8'), origin), 'utf8')
+        let html = injectOriginMeta(body.toString('utf8'), origin)
+        // token 与桥接脚本：面板据此调用 /run 路由（跨源拿不到 token，CORS 会挡住）
+        if (runHost !== null) {
+          html = injectRunBridge(html, runHost, origin)
+        }
+        body = Buffer.from(html, 'utf8')
       }
     } catch (error) {
       // 保留真实错误码：EACCES / EISDIR 与 ENOENT 的修复方向并不相同，
       // 一律报「不在包内」会把排查引向错误的方向。
       const code = (error && error.code) || (error && error.message) || 'unknown'
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end(`dsh-em-agent: cannot read panel.html (${code})`)
+      res.end(`dsh-em-agent: cannot read panel (${code})`)
       return
     }
     res.writeHead(200, {
@@ -164,6 +175,21 @@ function panelOrigin(ctx) {
  * @param {string} origin 见 {@link panelOrigin}
  * @returns {string} 注入后的 html（已存在则原样返回，避免重复注入）
  */
+/**
+ * 把运行 token 与桥接脚本注入面板。
+ * 只插入两个标签，且幂等：重复注入时整段替换。
+ */
+function injectRunBridge(html, host, origin) {
+  const meta = `<meta name="dsh-em-agent-token" content="${host.token}">`
+  const base = typeof origin === 'string' ? origin : ''
+  const tag = `<script src="${base}${host.bridgePath}" defer></script>`
+  let out = html.replace(/<meta name="dsh-em-agent-token" content="[^"]*">/g, '')
+  out = out.replace(/<script src="[^"]*run-bridge\.js" defer><\/script>/g, '')
+  const at = out.indexOf('</head>')
+  const block = meta + tag
+  return at < 0 ? block + out : out.slice(0, at) + block + out.slice(at)
+}
+
 export function injectOriginMeta(html, origin) {
   if (typeof html !== 'string' || !origin) return html
   const tag = `<meta name="${ORIGIN_META}" content="${origin}">`
@@ -193,6 +219,21 @@ export function apply(ctx, config) {
     else console.warn(detail)
   }
 
+  // ---- 运行引擎：headless 子进程 + JSONL 事件流 ----
+  // 每次 apply 重生成 token，避免旧页面残留的 token 继续可用。
+  const runToken = randomUUID()
+  // 注意：prefix 匹配用 startsWith(prefix + '/')，带尾斜杠会变成要求 '//'
+  const runPrefix = routePath === '/' ? '/' : routePath
+  const bridgePath = (runPrefix === '/' ? '' : runPrefix) + '/run-bridge.js'
+  const maxConcurrent = Math.max(1, Math.min(8,
+    Number(process.env.DSH_EM_AGENT_MAX_CONCURRENT || 1) || 1))
+  const engine = createRunHost({
+    routePath,
+    token: runToken,
+    maxConcurrent: () => maxConcurrent,
+  })
+  runHost = Object.assign(engine, { token: runToken, bridgePath })
+
   ctx.effect(() => {
     const origin = panelOrigin(ctx)
     const disposers = [ctx.webServer.register({
@@ -208,6 +249,48 @@ export function apply(ctx, config) {
         handler: makeHandler(origin),
       }))
     }
+    // 运行子路由：POST /run、GET /runs、GET /run/<id>[.events]、POST /run/<id>/cancel
+    disposers.push(ctx.webServer.register({
+      kind: 'prefix',
+      path: runPrefix,
+      handler: async (req, res) => {
+        let url
+        try { url = new URL(req.url || '/', 'http://127.0.0.1') } catch (e) { url = null }
+        if (url === null) { res.writeHead(400); res.end(); return }
+        let handled = false
+        try {
+          handled = await runHost.handle(req, res, url)
+        } catch (error) {
+          if (!res.headersSent) {
+            res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+            res.end('dsh-em-agent: run host error (' + ((error && error.code) || 'unknown') + ')')
+          }
+          return
+        }
+        if (!handled) { res.writeHead(404); res.end() }
+      },
+    }))
+
+    // 桥接脚本本体（面板注入的 <script src>）
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path: bridgePath,
+      handler: async (req, res) => {
+        try {
+          const js = await readFile(BRIDGE)
+          res.writeHead(200, {
+            'content-type': 'text/javascript; charset=utf-8',
+            'cache-control': 'no-store',
+            'content-length': String(js.length),
+          })
+          res.end(req.method === 'HEAD' ? undefined : js)
+        } catch (error) {
+          res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+          res.end('dsh-em-agent: cannot read run-bridge.js')
+        }
+      },
+    }))
+
     // 把真实 origin 注入宿主 index.html，供客户端半边兜底。
     // tapIndex 与 register 一样返回 disposer，必须一并释放，否则热重载会叠加。
     if (origin !== null && typeof ctx.webServer.tapIndex === 'function') {
@@ -215,6 +298,7 @@ export function apply(ctx, config) {
     }
     return () => {
       disposers.forEach((dispose) => { try { dispose() } catch (e) { /* 已释放 */ } })
+      if (runHost !== null) { try { runHost.dispose() } catch (e) { /* 已释放 */ } runHost = null }
     }
   }, 'dsh-em-agent: panel route')
 }
